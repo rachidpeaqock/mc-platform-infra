@@ -1,6 +1,6 @@
 name: Angular app (reusable)
 
-# Shared build/deploy pipeline for every Angular front end on the platform:
+# Shared build pipeline for every Angular front end on the platform:
 # mc-shell, mc-dashboards, mc-templates, and later mc-field's web build.
 #
 # Callers pass their app name; everything else is convention. Changing the
@@ -8,7 +8,7 @@ name: Angular app (reusable)
 # growing number of near-identical copies.
 #
 #   jobs:
-#     build:
+#     app:
 #       uses: rachidpeaqock/mc-platform-infra/.github/workflows/angular-app.yml@main
 #       with:
 #         app-name: mc-dashboards
@@ -18,30 +18,20 @@ on:
   workflow_call:
     inputs:
       app-name:
-        description: Angular project name; also the dist/ subdirectory
+        description: Angular project name, and the dist subdirectory it builds into
         required: true
         type: string
       node-version:
         required: false
         type: string
         default: '20'
-      deploy:
-        description: Deploy to Static Web Apps (requires AZURE_SWA_TOKEN)
-        required: false
-        type: boolean
-        default: false
-    secrets:
-      AZURE_SWA_TOKEN:
-        required: false
 
 jobs:
   build:
-    name: Build ${{ inputs.app-name }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read      # @rachidpeaqock/* comes from GitHub Packages
-      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
@@ -62,8 +52,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      # A design-system upgrade that silently drops the shared tokens would
-      # otherwise ship a correctly-built, unstyled app. Assert the contract.
+      # A design-system upgrade that silently dropped the shared tokens
+      # would otherwise ship a correctly-built, unstyled app. Assert it.
       - name: Verify build output
         run: |
           set -e
@@ -74,7 +64,7 @@ jobs:
             echo "The app built, but @rachidpeaqock/design-system tokens did not land."
             exit 1
           fi
-          echo "OK: $(du -sh "$DIST" | cut -f1) in $DIST, tokens present"
+          echo "OK: tokens present in $DIST"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -82,30 +72,3 @@ jobs:
           name: ${{ inputs.app-name }}-dist
           path: dist/${{ inputs.app-name }}/browser
           retention-days: 7
-
-  deploy:
-    name: Deploy ${{ inputs.app-name }}
-    needs: build
-    if: inputs.deploy
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: ${{ inputs.app-name }}-dist
-          path: dist
-
-      # A PR gets its own preview URL and is torn down on close; a push to
-      # main goes to production.
-      - name: Deploy to Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && 'close' || 'upload' }}
-          app_location: dist
-          skip_app_build: true
