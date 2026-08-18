@@ -207,9 +207,12 @@ Nothing else carried. **Sprint 1 closed at 22 points** (MC-103 re-pointed 3 → 
 
 **What it does *not* block:** everything npm/Angular. Sprints 1–3 completed unaffected.
 
-**Resolution:** the project moves to a personal machine without inspection. Adding the corporate root to a Java truststore would also work and reveals nothing new — the proxy already inspects this traffic — but the personal-machine route is the one chosen, and it is the cleaner separation for a personal project on work hardware.
+**✅ Resolved — by moving the build, not the machine.** No personal laptop materialised, so development moved to the cloud instead:
 
-⚠️ **Sprint 4 cannot start on this machine.** The gateway and registry are Spring Boot services and need Maven. Re-check this before planning Sprint 4.
+- **GitHub Actions is the compiler.** Runners are clean Ubuntu VMs with direct internet, so Maven Central resolves and every service is built, tested and verified there. Sprint 4 was completed this way.
+- **Codespaces gives a real inner loop** when one is needed — `templates/devcontainer/devcontainer.json` pins JDK 21, Maven and Node, so a Codespace boots ready to build. Free tier is 120 core-hours/month (~60 real hours on 2-core). Needs `gh auth refresh -h github.com -s codespace`.
+
+The work laptop is now used only for editing and pushing. Nothing JVM runs on it, and nothing needs to.
 
 ---
 
@@ -217,16 +220,28 @@ Nothing else carried. **Sprint 1 closed at 22 points** (MC-103 re-pointed 3 → 
 
 *Nothing user-visible. This is the sprint pair that decides whether the architecture survives year two.*
 
-## Sprint 4 — Gateway and registry
+## Sprint 4 — Gateway and registry 🔄 *(in progress)*
 
 **Goal:** every future service registers and routes through infrastructure that already exists.
+**Repos:** [`mc-discovery-server`](https://github.com/rachidpeaqock/mc-discovery-server) · [`mc-api-gateway`](https://github.com/rachidpeaqock/mc-api-gateway)
 
-| ID | Story | Pts |
-|---|---|---|
-| **MC-201** | As a **developer**, I stand up `mc-discovery-server` (Eureka) with 2 peer-aware replicas and self-preservation on in prod, off in dev. | 5 |
-| **MC-202** | As a **developer**, I stand up `mc-api-gateway` (Spring Cloud Gateway) routing by `lb://` logical name. | 5 |
-| **MC-203** | As a **developer**, the gateway validates the Entra JWT once at the edge and mints a `traceparent` — **while every service still authorizes independently**. | 8 |
-| **MC-204** | As a **developer**, `docker compose up` gives registry + gateway + Postgres + Kafka locally, so dev matches prod topology. | 5 |
+> **Development moved to the cloud.** No personal laptop was available, so the work machine's JVM blocker (below) was solved by moving the build off it entirely: **GitHub Actions runners are the compiler**, and a [devcontainer](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/templates/devcontainer/devcontainer.json) gives Codespaces a real inner loop when needed. Runners have clean internet — no Zscaler, no corporate Nexus — so Maven Central resolves normally. **This unblocked the entire backend epic without new hardware.**
+
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-201** | As a **developer**, I stand up `mc-discovery-server` (Eureka), self-preservation on in prod, off in dev. | 5 | ✅ **Done** — Boot 4.0.5 + Spring Cloud 2025.1.1. **3 tests green**, 58 MB executable jar. Tests assert `/eureka/apps` and `/actuator/health` actually serve, not just that the context loads. *(2 peer replicas are a deployment concern — Sprint 23.)* |
+| **MC-202** | As a **developer**, I stand up `mc-api-gateway` routing by `lb://` logical name. | 5 | ✅ **Done** — routes `/api/v1/*` to four services. **2 tests green**, 60 MB jar. Tests read the parsed route table back and assert **every route resolves via `lb://`**, never a hostname. |
+| **MC-203** | As a **developer**, the gateway validates the Entra JWT once at the edge and mints a `traceparent` — **while every service still authorizes independently**. | 8 | ⬜ **To do** — needs an Entra app registration (MC-002). |
+| **MC-204** | As a **developer**, `docker compose up` gives registry + gateway + Postgres + Kafka locally. | 5 | ⬜ **To do** — the devcontainer already includes docker-in-docker for this. |
+| **MC-205** | *(new)* As a **developer**, one reusable Java pipeline builds, tests and verifies every service. | 3 | ✅ **Done** — [`java-service.yml`](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/.github/workflows/java-service.yml). Asserts an **executable** jar (`BOOT-INF/` present), because a thin jar starts and dies in the cloud rather than failing the build. |
+
+### Spring Boot 4 findings
+
+**`TestRestTemplate` no longer lives at `org.springframework.boot.test.web.client`.** Boot 4's module split moved it, and the first CI run failed on exactly that. Fixed by using Spring Framework's `RestClient`, which needs no extra test dependency and doesn't depend on where Boot put things. **Every service test will hit this** — use `RestClient`.
+
+**The gateway starter was renamed.** `spring-cloud-starter-gateway` no longer resolves in the 2025.x train; it is `spring-cloud-starter-gateway-server-webflux`. Route config also nests one level deeper: `spring.cloud.gateway.server.webflux.routes`.
+
+**The earlier `startup_failure` did not recur.** The reusable-workflow call resolved cleanly for both services, so whatever broke it was in the removed `deploy` block — still worth re-introducing carefully in the deployment sprint rather than assuming.
 
 > **Pin the stack here:** Spring Boot **4.0.5** + Spring Cloud **2025.1.1**. Boot 4.1 has no compatible Spring Cloud release train ([backend §2](./backend-architecture.md#2-stack-and-versions)).
 
