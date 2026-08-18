@@ -1,0 +1,85 @@
+name: Java service (reusable)
+
+# Shared build pipeline for every Spring Boot service on the platform.
+#
+# Callers pass nothing but their name; the toolchain is convention, so a
+# JDK or Spring Boot bump lands in every service from one edit here.
+#
+#   jobs:
+#     service:
+#       uses: rachidpeaqock/mc-platform-infra/.github/workflows/java-service.yml@main
+#       with:
+#         service-name: mc-discovery-server
+#
+# Note on why this matters more than usual for this project: the original
+# development machine cannot build JVM projects at all (corporate TLS
+# interception plus an unreachable internal Maven mirror). Until the work
+# moves to Codespaces, THIS WORKFLOW IS THE COMPILER — so it runs tests
+# and fails loudly rather than just producing an artifact.
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: Maven artifactId; also the jar name
+        required: true
+        type: string
+      java-version:
+        required: false
+        type: string
+        default: '21'
+      run-tests:
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ inputs.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      # -B batch mode keeps the log readable; the runner reaches Maven
+      # Central directly, which is the entire point of building here.
+      - name: Compile
+        run: mvn -B -ntp clean compile
+
+      - name: Test
+        if: inputs.run-tests
+        run: mvn -B -ntp test
+
+      - name: Package
+        run: mvn -B -ntp package -DskipTests
+
+      # The Spring Boot plugin should produce an executable jar. If the
+      # plugin is missing or misconfigured you get a thin jar that starts
+      # and immediately dies in the cloud — catch that here, not there.
+      - name: Verify executable jar
+        run: |
+          set -e
+          JAR=$(find target -maxdepth 1 -name '*.jar' ! -name '*-plain.jar' | head -n1)
+          test -n "$JAR" || { echo "no executable jar in target/"; exit 1; }
+          unzip -l "$JAR" | grep -q 'BOOT-INF/' || {
+            echo "$JAR is not a Spring Boot executable jar (no BOOT-INF/)."
+            echo "spring-boot-maven-plugin is probably missing from the build."
+            exit 1
+          }
+          echo "OK: $JAR ($(du -h "$JAR" | cut -f1))"
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.service-name }}-jar
+          path: target/*.jar
+          retention-days: 7

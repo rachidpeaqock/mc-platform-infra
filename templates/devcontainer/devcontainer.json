@@ -1,0 +1,52 @@
+{
+  "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.schema.json",
+  "name": "Milestone Command — Java service",
+
+  // Why this exists: the project's original development machine cannot
+  // build JVM projects (corporate TLS interception breaks the JDK
+  // truststore, and Maven is mirrored to an unreachable internal Nexus).
+  // A Codespace is a clean Linux VM with direct internet, so Maven
+  // Central resolves normally and the inner loop is a real one —
+  // compile, test and debug locally instead of pushing to find out.
+  "image": "mcr.microsoft.com/devcontainers/java:1-21-bookworm",
+
+  "features": {
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "none",
+      "installMaven": "true",
+      "mavenVersion": "3.9.9"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack",
+        "vmware.vscode-boot-dev-pack",
+        "redhat.vscode-yaml",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "java.configuration.updateBuildConfiguration": "automatic",
+        "editor.formatOnSave": true,
+        "files.eol": "\n"
+      }
+    }
+  },
+
+  // 8761 Eureka · 8080 gateway · 8081+ services · 5432 Postgres
+  "forwardPorts": [8761, 8080, 8081, 8082, 8083, 5432],
+  "portsAttributes": {
+    "8761": { "label": "Eureka registry" },
+    "8080": { "label": "API gateway" }
+  },
+
+  // Warm the dependency cache once, so the first real build is fast.
+  "postCreateCommand": "mvn -B -ntp -q dependency:go-offline || true",
+
+  "remoteUser": "vscode"
+}
