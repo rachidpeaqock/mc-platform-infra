@@ -170,7 +170,14 @@ Nothing else carried. **Sprint 1 closed at 22 points** (MC-103 re-pointed 3 → 
 | `startup_failure` persisted | Something in the reusable workflow's `deploy` job. Isolated by bisecting to a caller with no `uses:` (green), then a minimal callee (ran) | Removed the deploy block — deferred to Sprint 4 anyway. **The exact offending construct was not isolated**; re-introduce it carefully in Sprint 4 rather than assuming it works |
 | `403 read_package` | **A repo's `GITHUB_TOKEN` cannot read a private package published from a different repo** | Package made public (below) |
 
-⬜ **Outstanding manual step:** make the `design-system` package public via the package settings UI. **GitHub's REST API has no visibility endpoint for user-scoped packages** — this genuinely cannot be automated. Making the *repo* public does not propagate to the package.
+✅ **Resolved — and the package stayed private.** Rather than making it public, the four consuming repos were granted **read** access via the package's *Manage Actions access* settings. Each repo's own `GITHUB_TOKEN` now resolves the package: **no PAT, no repository secret, nothing to rotate**, and access is per-repo and revocable.
+
+Two notes for the next consumer added (`mc-field` in Sprint 10, and any new app):
+
+- **The grant is UI-only.** GitHub's REST API exposes no endpoint for it on personal accounts, so this step cannot be scripted — it is a manual step per consuming repo, and the price of keeping the package private.
+- **The picker does not save on selection.** The first attempt failed because the repos were chosen but the change was never committed; CI kept returning `403 permission_denied: read_package` with a token that correctly showed `Packages: read`. If a consumer 403s, verify the repo is actually *listed* with role **Read**, not merely selected.
+
+**All six repos are now green**, including the reusable pipeline's assertion that the built CSS contains the design tokens.
 
 ## Sprint 3 — Shell, routing, and the mobile repo ✅ *(one item environment-blocked)*
 
