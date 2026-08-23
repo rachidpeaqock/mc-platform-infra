@@ -76,9 +76,15 @@
       "path": "../design_handoff_milestone_command"
     },
 
-    // ---- unrelated project ---------------------------------------
     {
-      "name": "other · stones",
+      // The ORIGINAL prototype — React micro-frontends on CDN Babel, built
+      // from "Concept v4". Ancestor of milestone-command-ng, which is the
+      // ancestor of everything above.
+      //
+      // Its 19 code files are byte-identical to design_handoff/html-reference,
+      // so the code here is redundant. `uploads/` is not: it holds the founding
+      // concept documents (v3 + v4), and that is the only copy in existence.
+      "name": "ref · origin prototype + concept docs",
       "path": "../stones"
     }
   ],
