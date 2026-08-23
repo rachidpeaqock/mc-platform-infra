@@ -269,6 +269,8 @@ Two hypotheses were tested and rejected on the way: hyphenated inputs in job-lev
 
 **Goal:** the architecture rules enforce themselves, before there is anything to violate.
 
+➡️ **Deferred past Sprint 6 by choice.** The milestone service was built first, so `catalog`/`audit`/`schedule` now exist as conventions the build does not yet enforce. That is the debt this sprint was meant to prevent, and it grows with every module added — MC-211 and MC-212 should land before the second service, not after.
+
 | ID | Story | Pts |
 |---|---|---|
 | **MC-211** | As a **developer**, `ApplicationModules.verify()` and ArchUnit rules fail the build on a boundary violation. | 5 |
@@ -289,12 +291,44 @@ Two hypotheses were tested and rejected on the way: hyphenated inputs in job-lev
 
 **Goal:** real milestones out of a real database.
 
-| ID | Story | Pts |
-|---|---|---|
-| **MC-301** | As a **developer**, Flyway creates the full schema — project, phase, work package, milestone, dependency, log, rebaseline, reason codes, calendars. | 8 |
-| **MC-302** | As a **developer**, the 32 seed milestones load as fixture data, so dev has realistic content. | 3 |
-| **MC-303** | As **P2 (PM)**, `GET /api/v1/projects/{id}/milestones` returns the hierarchy with server-computed `variance` and `rag`. | 5 |
-| **MC-304** | As a **developer**, migrations run as a discrete pipeline step, not on app startup, so a bad migration can't take the app down with it. | 3 |
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-301** | As a **developer**, Flyway creates the full schema — project, phase, work package, milestone, dependency, log, rebaseline, reason codes, calendars. | 8 | ✅ **Done** — `V1`–`V4` in [`mc-milestone-service`](https://github.com/rachidpeaqock/mc-milestone-service). Three departures from the documented DDL, below. |
+| **MC-302** | As a **developer**, the 32 seed milestones load as fixture data, so dev has realistic content. | 3 | ✅ **Done** — `V900__seed_meridian.sql`: 32 milestones, a 14-link dependency chain, 25 audit rows with real slip reasons. In `src/test/resources`, so it cannot reach production. |
+| **MC-303** | As **P2 (PM)**, `GET /api/v1/projects/{id}/milestones` returns the hierarchy with server-computed `variance` and `rag`. | 5 | ✅ **Done** — assembled phase → work package → milestone tree, read from `milestone_view`. |
+| **MC-304** | As a **developer**, migrations run as a discrete pipeline step, not on app startup, so a bad migration can't take the app down with it. | 3 | ✅ **Done** — `spring.flyway.enabled: false` plus `SchemaVersionGuard`, which fails startup loudly if the schema is missing. |
+
+**Sprint 6 is complete.** 19 points, and the first service that does something a user would recognise.
+
+### The one decision worth carrying forward
+
+**Variance and RAG are computed by the database, and Java never recomputes them.** `biz_days(from, to, calendar)` and `milestone_view` are the single definition. There is deliberately no `ragOf()` method on the `Rag` enum to tempt anyone — the moment a second implementation exists the two disagree, and the disagreement surfaces as an executive dashboard that contradicts the field.
+
+This also front-loads part of **MC-311**: `biz_days` already takes a calendar and honours holidays and non-Mon–Fri week patterns, rather than shipping the prototype's known bug and fixing it next sprint. Sprint 7 keeps the admin-facing calendar configuration, the exhaustive test suite (MC-312), and the sweeper.
+
+### Three departures from the documented DDL
+
+[`azure-deployment-plan.md` §4](./azure-deployment-plan.md#4-database-schema) was written when there was one shared database. Under database-per-service:
+
+1. **Only this service's tables exist here.** Users, activity and templates went to their own services.
+2. **`owner_id` and `actor_id` carry no foreign key.** They point into another service's database, and a FK across that line is precisely the coupling database-per-service prevents. `owner_id` is returned as an opaque id — resolving it to a name is API composition, not this service's job.
+3. **`REVOKE UPDATE, DELETE` is replaced by triggers.** ⚠️ Worth internalising: Flyway connects as the table owner, and **a table owner keeps every privilege regardless of `REVOKE`**. The documented statement would have run without error and enforced nothing — a control you believe is protecting you and isn't.
+
+### What Boot 4 cost, and it was not the language
+
+Six CI rounds, none of them about the domain. This is the tax for being early on a major version, and it is worth writing down because the other three services will pay it once each otherwise:
+
+| Failure | Cause |
+|---|---|
+| Non-parseable POM | An XML comment cannot contain `--`, and mine had a divider rule |
+| `version is missing` | Boot 4 manages the Testcontainers *version property* but not the modules |
+| Still missing | **Testcontainers 2.x renamed everything**: `org.testcontainers:postgresql` → `testcontainers-postgresql`, and the class moved to `org.testcontainers.postgresql`. The last 1.x release is the highest published under the old coordinates |
+| Whole context failed, 19 tests | **Boot 4 ships Jackson 3** (`tools.jackson`), which has no `SerializationFeature.WRITE_DATES_AS_TIMESTAMPS`. Jackson 3 already defaults to ISO-8601, so the correct configuration was none at all |
+| Schema missing, 19 tests | **Boot 4 split autoconfigure into a module per technology.** `flyway-core` gives you the library and none of the Boot integration — no migration, no `spring.flyway.*`, and *no error*. The dependency is `org.springframework.boot:spring-boot-flyway` |
+
+⚠️ **Two of these five failed silently rather than loudly**, and that is the pattern to watch for. An obsolete Jackson property did not warn, it killed the entire application context. A missing autoconfiguration module did not warn either — the application started perfectly against an empty database.
+
+**The second one was caught only by `SchemaVersionGuard`**, written for MC-304 to cover the risk of separating migration from startup. It earned its place before the sprint that added it was even finished: without it the service would have started clean, registered with Eureka, and returned 500s on the first request. That is the argument for asserting what you depend on rather than assuming the framework wired it.
 
 ## Sprint 7 — Working days and RAG (highest-value tests in the codebase)
 
