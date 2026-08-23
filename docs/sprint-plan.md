@@ -239,7 +239,8 @@ The work laptop is now used only for editing and pushing. Nothing JVM runs on it
 | **MC-201** | As a **developer**, I stand up `mc-discovery-server` (Eureka), self-preservation on in prod, off in dev. | 5 | ✅ **Done** — Boot 4.0.5 + Spring Cloud 2025.1.1. **3 tests green**, 58 MB executable jar. Tests assert `/eureka/apps` and `/actuator/health` actually serve, not just that the context loads. *(2 peer replicas are a deployment concern — Sprint 23.)* |
 | **MC-202** | As a **developer**, I stand up `mc-api-gateway` routing by `lb://` logical name. | 5 | ✅ **Done** — routes `/api/v1/*` to four services. **2 tests green**, 60 MB jar. Tests read the parsed route table back and assert **every route resolves via `lb://`**, never a hostname. |
 | **MC-203** | As a **developer**, the gateway validates the Entra JWT once at the edge and mints a `traceparent` — **while every service still authorizes independently**. | 8 | ⬜ **To do** — needs an Entra app registration (MC-002). |
-| **MC-204** | As a **developer**, `docker compose up` gives registry + gateway + Postgres + Kafka locally. | 5 | ⬜ **To do** — the devcontainer already includes docker-in-docker for this. |
+| **MC-204** | As a **developer**, `docker compose up` gives registry + gateway + Postgres + Kafka locally. | 5 | ✅ **Done** — [`compose.yml`](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/compose.yml). Services are **pulled from GHCR**, not built from sibling folders, because a Codespace has one repo checked out and not nine. `init/01-databases.sql` creates a database and login per service **with no cross-database grants**, so §6's hardest rule is enforced by the environment rather than only the document. |
+| **MC-206** | *(new)* As a **developer**, every service publishes a container image on merge to main. | 3 | ✅ **Done** — multi-stage, non-root, container-aware heap (`MaxRAMPercentage`, so the JVM sees the container limit rather than the host's RAM). `ghcr.io/rachidpeaqock/mc-{discovery-server,api-gateway}:main` are live. |
 | **MC-205** | *(new)* As a **developer**, one reusable Java pipeline builds, tests and verifies every service. | 3 | ✅ **Done** — [`java-service.yml`](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/.github/workflows/java-service.yml). Asserts an **executable** jar (`BOOT-INF/` present), because a thin jar starts and dies in the cloud rather than failing the build. |
 
 ### Spring Boot 4 findings
@@ -248,7 +249,19 @@ The work laptop is now used only for editing and pushing. Nothing JVM runs on it
 
 **The gateway starter was renamed.** `spring-cloud-starter-gateway` no longer resolves in the 2025.x train; it is `spring-cloud-starter-gateway-server-webflux`. Route config also nests one level deeper: `spring.cloud.gateway.server.webflux.routes`.
 
-**The earlier `startup_failure` did not recur.** The reusable-workflow call resolved cleanly for both services, so whatever broke it was in the removed `deploy` block — still worth re-introducing carefully in the deployment sprint rather than assuming.
+### 🔎 The Sprint 2 `startup_failure` — root cause finally isolated
+
+Adding the image-publish job reproduced the exact failure from Sprint 2: **`startup_failure` at 0–1s, no logs, no annotation, no check runs.** This time the change was small enough to bisect properly, and the cause is:
+
+> **A called workflow can never hold more permission than its caller.** These repos default to `default_workflow_permissions: read`. The reusable workflow requested `permissions: packages: write`, which is an escalation — so GitHub refuses to start the run at all, before any job exists to attach an error to.
+
+The Sprint 2 Angular `deploy` job failed for exactly the same reason: it asked for `pull-requests: write`. At the time I removed the block and noted the cause as unidentified — that was the right call to keep moving, but it was a workaround, not a diagnosis.
+
+**The rule:** whenever a reusable workflow declares a `permissions:` block, **every caller must grant at least the same permissions.** The failure mode gives you nothing to work from, so it is worth knowing by heart.
+
+Two hypotheses were tested and rejected on the way: hyphenated inputs in job-level expressions (`inputs.publish-image`), and third-party action resolution. Neither was the cause; the bisect — caller with no `uses:`, then a callee stripped to a single `echo` — is what found it.
+
+⚠️ **Sprint 16 owes a follow-up:** the Angular workflow's SWA deploy job can now be reinstated correctly, by granting `pull-requests: write` in each app's caller.
 
 > **Pin the stack here:** Spring Boot **4.0.5** + Spring Cloud **2025.1.1**. Boot 4.1 has no compatible Spring Cloud release train ([backend §2](./backend-architecture.md#2-stack-and-versions)).
 
