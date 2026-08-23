@@ -4,11 +4,12 @@
 # Brings up the same shape that runs in the cloud, so "works on my
 # machine" and "works in the cloud" stop being different questions:
 #
-#   discovery-server  registry every service registers with
-#   api-gateway       single entry point, routes by lb:// name
-#   postgres          one database per service (see init/)
-#   kafka             the event backbone (Event Hubs speaks this protocol)
-#   kafka-ui          browse topics and messages while developing
+#   discovery-server   registry every service registers with
+#   api-gateway        single entry point, routes by lb:// name
+#   milestone-service  milestones, audit, calendar, dependency graph
+#   postgres           one database per service (see init/)
+#   kafka              the event backbone (Event Hubs speaks this protocol)
+#   kafka-ui           browse topics and messages while developing
 #
 #   docker compose up -d
 #   docker compose --profile tools up -d        # adds kafka-ui
@@ -116,6 +117,31 @@ services:
         # Starting before the registry is up means a gateway that resolves
         # nothing and logs confusing connection refusals for a minute.
         condition: service_healthy
+
+  milestone-service:
+    image: ghcr.io/rachidpeaqock/mc-milestone-service:main
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      EUREKA_URI: http://discovery-server:8761/eureka
+      DB_URL: jdbc:postgresql://postgres:5432/milestone_db
+      DB_USER: milestone_svc
+      DB_PASSWORD: milestone_svc
+    depends_on:
+      postgres:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    # ⚠️ This service does NOT migrate its own database (MC-304) and fails
+    # startup deliberately if the schema is missing. First run:
+    #
+    #   cd ../mc-milestone-service && mvn flyway:migrate
+    #
+    # A restart policy rather than a one-shot start, so the container comes
+    # up on its own once you have run the migration — which is the same
+    # ordering the cloud pipeline uses: migrate, then deploy.
+    restart: on-failure:5
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest

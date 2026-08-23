@@ -59,6 +59,13 @@
       "name": "service · api-gateway",
       "path": "../mc-api-gateway"
     },
+    {
+      // The heart: milestones, audit, calendar, dependency graph. The one
+      // service whose modules must not be split further — catalog and audit
+      // share a transactional invariant.
+      "name": "service · milestone",
+      "path": "../mc-milestone-service"
+    },
 
     // ---- reference (read, don't edit) ----------------------------
     {

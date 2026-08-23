@@ -13,12 +13,13 @@ Shared CI/CD workflows, infrastructure-as-code, and the architecture and plannin
 | [`mc-field`](https://github.com/rachidpeaqock/mc-field) | **Native iOS/Android** app for site crews (Ionic + Capacitor 8) |
 | [`mc-discovery-server`](https://github.com/rachidpeaqock/mc-discovery-server) | Eureka registry. Every service registers here so the gateway can route by name |
 | [`mc-api-gateway`](https://github.com/rachidpeaqock/mc-api-gateway) | Single entry point. Routes `lb://` by service name, never by host and port |
+| [`mc-milestone-service`](https://github.com/rachidpeaqock/mc-milestone-service) | **The heart.** Milestones, audit trail, working-day calendar, dependency graph |
 | `mc-platform-infra` | This repo |
 | [`mc-concept`](https://github.com/rachidpeaqock/mc-concept) | **Private.** The founding product documents (Concept v3 + v4) everything here descends from |
 | [`milestone-command-prototype`](https://github.com/rachidpeaqock/milestone-command-prototype) | Archived. The Angular single-workspace prototype everything was extracted from |
 | [`stones-react`](https://github.com/rachidpeaqock/stones-react) | Archived. The original React prototype, written straight from Concept v4 |
 
-Not yet created: `mc-api-client`, `mc-milestone-service`, `mc-activity-service`, `mc-template-service`, `mc-identity-service`, `mc-ai-service`, `mc-integration-service`.
+Not yet created: `mc-api-client`, `mc-activity-service`, `mc-template-service`, `mc-identity-service`, `mc-ai-service`, `mc-integration-service`.
 
 ## Working locally
 
