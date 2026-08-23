@@ -1,0 +1,158 @@
+// ============================================================
+// Milestone Command — multi-root workspace
+// ============================================================
+// The platform is deliberately many repos (docs/platform-architecture.md §5):
+// each app and each service versions, tests and deploys on its own cadence.
+// That is right for CI and wrong for a human reading code, so this file puts
+// all of them back in one window without putting them back in one repo.
+//
+//   File > Open Workspace from File… > mc-platform-infra/milestone-command.code-workspace
+//
+// It lives in mc-platform-infra so it is version controlled and travels with
+// the platform rather than sitting loose in a Desktop folder. Paths are
+// RELATIVE, so it assumes the repos are siblings — and keeps working when the
+// whole tree moves to the personal laptop, which is the plan.
+//
+// Folder order below is dependency order: infra and the design system are
+// upstream of the apps; the apps are upstream of nothing.
+{
+  "folders": [
+    // ---- platform ------------------------------------------------
+    {
+      // Architecture docs, the sprint plan, compose.yml, and the reusable
+      // CI workflows every other repo calls. Start here.
+      "name": "platform · infra",
+      "path": "../mc-platform-infra"
+    },
+    {
+      // @rachidpeaqock/design-system — private npm package.
+      // Upstream of all three apps; breaking it breaks everything.
+      "name": "platform · design-system",
+      "path": "../mc-design-system"
+    },
+
+    // ---- apps (one repo each, on purpose) ------------------------
+    {
+      "name": "app · shell",
+      "path": "../mc-shell"
+    },
+    {
+      "name": "app · dashboards",
+      "path": "../mc-dashboards"
+    },
+    {
+      "name": "app · templates",
+      "path": "../mc-templates"
+    },
+    {
+      // Capacitor, iOS + Android only. No web build is planned.
+      "name": "app · field (mobile)",
+      "path": "../mc-field"
+    },
+
+    // ---- services ------------------------------------------------
+    {
+      "name": "service · discovery-server",
+      "path": "../mc-discovery-server"
+    },
+    {
+      "name": "service · api-gateway",
+      "path": "../mc-api-gateway"
+    },
+
+    // ---- reference (read, don't edit) ----------------------------
+    {
+      // The original three-apps-in-one-workspace prototype. Superseded, but
+      // still the source of truth for behaviour nothing has ported yet.
+      "name": "ref · prototype (archived)",
+      "path": "../milestone-command-ng"
+    },
+    {
+      "name": "ref · backend spec",
+      "path": "../milestone-command-backend"
+    },
+    {
+      "name": "ref · design handoff",
+      "path": "../design_handoff_milestone_command"
+    },
+
+    // ---- unrelated project ---------------------------------------
+    {
+      "name": "other · stones",
+      "path": "../stones"
+    }
+  ],
+
+  "settings": {
+    // ---- performance --------------------------------------------
+    // Twelve folders means twelve node_modules and target trees. Without
+    // these excludes the file watcher indexes hundreds of thousands of files
+    // and the window becomes unusable.
+    "files.watcherExclude": {
+      "**/node_modules/**": true,
+      "**/dist/**": true,
+      "**/.angular/**": true,
+      "**/target/**": true,
+      "**/www/**": true,
+      "**/.git/objects/**": true,
+      "**/ios/App/Pods/**": true,
+      "**/android/.gradle/**": true
+    },
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/.angular": true,
+      "**/target": true,
+      "**/www": true,
+      "**/package-lock.json": true
+    },
+
+    // ---- git -----------------------------------------------------
+    // Each folder is its own repo; the SCM view lists them as separate
+    // sources, which is exactly what we want.
+    "git.autofetch": true,
+    "git.autofetchPeriod": 300,
+    // Stops VS Code walking up to Desktop/ looking for a parent repo.
+    "git.openRepositoryInParentFolders": "never",
+    // Twelve repos on `main` is twelve chances to commit straight to it in
+    // the wrong window.
+    "git.branchProtection": ["main"],
+    "git.branchProtectionPrompt": "alwaysCommitToNewBranch",
+
+    // ---- java ----------------------------------------------------
+    // The language server cannot resolve dependencies on this machine:
+    // corporate TLS interception plus an unreachable internal Maven mirror.
+    // Left on "automatic" it retries forever and paints every Spring import
+    // red. Highlighting and navigation still work; the real compiler is
+    // .github/workflows/java-service.yml in CI.
+    // ⚠️ Flip both of these back on the personal laptop.
+    "java.configuration.updateBuildConfiguration": "disabled",
+    "java.errors.incompleteClasspath.severity": "ignore",
+
+    // ---- editing -------------------------------------------------
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.patterns": {
+      "package.json": "package-lock.json, .npmrc, angular.json, ng-package.json, tsconfig*.json, .editorconfig, .browserslistrc",
+      "pom.xml": "Dockerfile, .dockerignore, mvnw, mvnw.cmd, .mvn",
+      "compose.yml": "compose.*.yml, .env, .env.*",
+      "README.md": "LICENSE, CONTRIBUTING.md, CHANGELOG.md, .gitignore"
+    },
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    // The repos are LF; Windows checkouts are CRLF. Pinning the editor to LF
+    // keeps diffs to the lines actually changed.
+    "files.eol": "\n"
+  },
+
+  "extensions": {
+    "recommendations": [
+      "angular.ng-template",
+      "ionic.ionic",
+      "vscjava.vscode-java-pack",
+      "vmware.vscode-boot-dev-pack",
+      "ms-azuretools.vscode-docker",
+      "github.vscode-github-actions",
+      "editorconfig.editorconfig"
+    ]
+  }
+}

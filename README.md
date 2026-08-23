@@ -11,10 +11,38 @@ Shared CI/CD workflows, infrastructure-as-code, and the architecture and plannin
 | [`mc-dashboards`](https://github.com/rachidpeaqock/mc-dashboards) | Executive + Project Manager views |
 | [`mc-templates`](https://github.com/rachidpeaqock/mc-templates) | Planner tooling |
 | [`mc-field`](https://github.com/rachidpeaqock/mc-field) | **Native iOS/Android** app for site crews (Ionic + Capacitor 8) |
+| [`mc-discovery-server`](https://github.com/rachidpeaqock/mc-discovery-server) | Eureka registry. Every service registers here so the gateway can route by name |
+| [`mc-api-gateway`](https://github.com/rachidpeaqock/mc-api-gateway) | Single entry point. Routes `lb://` by service name, never by host and port |
 | `mc-platform-infra` | This repo |
 | [`milestone-command-prototype`](https://github.com/rachidpeaqock/milestone-command-prototype) | Archived. The original single-workspace prototype everything was extracted from |
 
-Not yet created: `mc-api-client`, `mc-discovery-server`, `mc-api-gateway`, `mc-milestone-service`, `mc-activity-service`, `mc-template-service`, `mc-identity-service`, `mc-ai-service`, `mc-integration-service`.
+Not yet created: `mc-api-client`, `mc-milestone-service`, `mc-activity-service`, `mc-template-service`, `mc-identity-service`, `mc-ai-service`, `mc-integration-service`.
+
+## Working locally
+
+The platform is many repos on purpose — each one versions, tests and deploys on its own cadence ([§5](docs/platform-architecture.md)). That is right for CI and inconvenient for a human reading code, so:
+
+```
+File > Open Workspace from File… > milestone-command.code-workspace
+```
+
+One VS Code window, all twelve folders, each still its own repo in the SCM view. The file also carries the watcher excludes that keep twelve `node_modules` trees from grinding the window to a halt, and disables the Java language server's dependency resolution — which cannot succeed on the original development machine and otherwise retries forever.
+
+Then bring the topology up:
+
+```bash
+docker compose up -d                      # registry, gateway, Postgres, Kafka
+docker compose --profile tools up -d      # adds kafka-ui on :8090
+```
+
+The Java services are **pulled from GHCR, not built** — a Codespace has one repo checked out, not nine. Working on one? Stop its container and run it from the IDE on the same port; everything else keeps working.
+
+```bash
+docker compose stop api-gateway
+cd ../mc-api-gateway && mvn spring-boot:run
+```
+
+`init/01-databases.sql` gives each service its own database and login with **no cross-database grants**, so the boundary in [§6](docs/platform-architecture.md) is enforced by the environment rather than asserted in a document.
 
 ## Documents
 
@@ -40,6 +68,10 @@ jobs:
 
 It also asserts the built CSS contains `--primary` — so a design-system regression that silently drops the shared tokens fails the build instead of shipping a correctly-built, unstyled app.
 
+`.github/workflows/java-service.yml` does the same for every Spring Boot service: compile, test, package, and assert the jar actually contains `BOOT-INF/` — catching a thin jar here rather than in the cloud, where it would start and immediately die.
+
+> ⚠️ **A caller of `java-service.yml` must declare `permissions: packages: write`.** A called workflow can never hold more permission than its caller, and these repos default to a read-only token. Omit it and the whole run fails with `startup_failure` at 0s — no logs, no annotation, nothing pointing at permissions. This cost two sprints to find; see the note at the top of the workflow.
+
 > This repo is **public** so its reusable workflows can be called from the other repos. It contains no secrets.
 
 ## Infrastructure
@@ -48,9 +80,14 @@ It also asserts the built CSS contains `--primary` — so a design-system regres
 
 ## Status
 
-**Sprints 1–3 complete.** The front-end split is done: four deployable apps over one shared design system, no backend required.
+**Sprints 1–4 complete**, bar one story.
 
-**Two blockers** — both tracked in `docs/sprint-plan.md`:
+- The front-end split is done: four deployable apps over one shared design system, no backend required.
+- The backend skeleton is up: registry and gateway build, test, and publish images to GHCR on every push to `main`, and `docker compose up` brings the whole topology up locally.
 
-1. The `design-system` package is private, so other repos' CI cannot install it. One visibility flip in the package settings fixes every repo at once.
-2. **Sprint 4 onward cannot be built on the original development machine.** Maven there is pinned to a corporate Nexus mirror that is unreachable off that network, and a corporate TLS-inspection proxy breaks JVM certificate validation. The backend work moves to a personal machine.
+**Both earlier blockers are resolved**, neither the way first proposed:
+
+1. ~~The `design-system` package is private, so other repos' CI cannot install it.~~ Resolved **without** making it public and without a PAT — each consuming repo was granted access under the package's *Manage Actions access*. The package stays private.
+2. ~~Sprint 4 onward cannot be built on the original development machine.~~ Maven there is still pinned to an unreachable corporate mirror behind a TLS-inspecting proxy, and that has not changed — but the build moved to GitHub Actions, so the machine no longer needs to compile anything. **`java-service.yml` is the compiler.**
+
+**Remaining:** `MC-203`, JWT validation at the gateway, blocked on the Entra app registration (`MC-002`). Anything needing a corporate certificate is deferred until the work moves to a personal machine; the sprint plan tracks which stories those are.
