@@ -14,7 +14,9 @@ Shared CI/CD workflows, infrastructure-as-code, and the architecture and plannin
 | [`mc-discovery-server`](https://github.com/rachidpeaqock/mc-discovery-server) | Eureka registry. Every service registers here so the gateway can route by name |
 | [`mc-api-gateway`](https://github.com/rachidpeaqock/mc-api-gateway) | Single entry point. Routes `lb://` by service name, never by host and port |
 | `mc-platform-infra` | This repo |
-| [`milestone-command-prototype`](https://github.com/rachidpeaqock/milestone-command-prototype) | Archived. The original single-workspace prototype everything was extracted from |
+| [`mc-concept`](https://github.com/rachidpeaqock/mc-concept) | **Private.** The founding product documents (Concept v3 + v4) everything here descends from |
+| [`milestone-command-prototype`](https://github.com/rachidpeaqock/milestone-command-prototype) | Archived. The Angular single-workspace prototype everything was extracted from |
+| [`stones-react`](https://github.com/rachidpeaqock/stones-react) | Archived. The original React prototype, written straight from Concept v4 |
 
 Not yet created: `mc-api-client`, `mc-milestone-service`, `mc-activity-service`, `mc-template-service`, `mc-identity-service`, `mc-ai-service`, `mc-integration-service`.
 

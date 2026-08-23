@@ -62,6 +62,13 @@
 
     // ---- reference (read, don't edit) ----------------------------
     {
+      // The founding concept documents, v3 and v4. PRIVATE repo — this is
+      // the product brief, not the architecture. Everything above descends
+      // from it. Rescued from stones/uploads/, which was the only copy.
+      "name": "ref · concept (private)",
+      "path": "../mc-concept"
+    },
+    {
       // The original three-apps-in-one-workspace prototype. Superseded, but
       // still the source of truth for behaviour nothing has ported yet.
       "name": "ref · prototype (archived)",
@@ -72,20 +79,17 @@
       "path": "../milestone-command-backend"
     },
     {
+      // Contains html-reference/ — the ORIGINAL prototype, React
+      // micro-frontends on CDN Babel written straight from Concept v4, and
+      // the ancestor of milestone-command-ng. Archived on GitHub as
+      // `stones-react`.
+      //
+      // The old sibling `stones/` folder is deliberately NOT in this
+      // workspace: its 19 code files are byte-identical to what is here, and
+      // the concept documents that made it worth keeping now live in
+      // mc-concept.
       "name": "ref · design handoff",
       "path": "../design_handoff_milestone_command"
-    },
-
-    {
-      // The ORIGINAL prototype — React micro-frontends on CDN Babel, built
-      // from "Concept v4". Ancestor of milestone-command-ng, which is the
-      // ancestor of everything above.
-      //
-      // Its 19 code files are byte-identical to design_handoff/html-reference,
-      // so the code here is redundant. `uploads/` is not: it holds the founding
-      // concept documents (v3 + v4), and that is the only copy in existence.
-      "name": "ref · origin prototype + concept docs",
-      "path": "../stones"
     }
   ],
 
