@@ -32,7 +32,12 @@ on:
         required: false
         type: boolean
         default: true
-      publish-image:
+      publish_image:
+        # Underscore, not a hyphen, and deliberately so: a hyphenated input
+        # referenced from a JOB-level `if:` or `name:` is parsed as
+        # subtraction and fails the whole run with `startup_failure` at 0s,
+        # before any job starts and with no usable error. Hyphens are fine
+        # inside steps — which is what makes it so confusing to diagnose.
         description: Build and push a container image to GHCR (main only)
         required: false
         type: boolean
@@ -95,7 +100,7 @@ jobs:
   image:
     name: Publish image
     needs: build
-    if: inputs.publish-image && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: inputs.publish_image && github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
