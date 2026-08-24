@@ -103,6 +103,25 @@ jobs:
           path: target/*.jar
           retention-days: 7
 
+      # MC-213. Services that pin their API contract write the generated
+      # spec to target/openapi.json during the test run. Publishing it here
+      # does two jobs: every merge leaves a downloadable record of the
+      # contract as it shipped, and it is how a service bootstraps its
+      # first baseline — the test writes one, this uploads it, and
+      # `gh run download` fetches it to be committed.
+      #
+      # `if: always()` because the most useful time to have the spec is the
+      # run where the contract check just failed. `if-no-files-found: ignore`
+      # so services without an API (the registry, the gateway) are unaffected.
+      - name: Upload OpenAPI spec
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.service-name }}-openapi
+          path: target/openapi.json
+          if-no-files-found: ignore
+          retention-days: 30
+
   # Publishing images is what makes `docker compose up` work from anywhere —
   # a developer in a Codespace has one repo checked out, not nine, so compose
   # pulls the other services rather than building them from sibling folders.
