@@ -741,11 +741,11 @@ MC-701 in Sprint 17.
 | **MC-402** | As **P3**, I sign in with my own Entra account, so the audit trail records **me** and not a name the app made up. | 5 | ✅ **Done** — one provider, and nothing else changed. The `ACCESS_TOKEN` seam paid for itself a second time. |
 | **MC-403** | As **P3**, I update a real date with a reason **through the API**, and I am told whether it saved. | 5 | ✅ **Done** — and it can fail, which is the part that did not exist before. |
 | **MC-404** | As **P3**, my list is **the milestones I own**, decided by the server, so a phone on a site connection is not downloading an entire LNG train to filter it locally. | 5 | ✅ **Done** — `?owner=me`, resolved server-side from the token. Contract 2.2.0. |
-| **MC-405** | As **P3**, a version of this app the platform no longer supports **stops and tells me to update**, rather than writing something the API will reject. | 5 | ⬜ **To do** — the only story in this sprint that needs a new backend surface, and it is the one that should be designed rather than ported. |
+| **MC-405** | As **P3**, a version of this app the platform no longer supports **stops and tells me to update**, rather than writing something the API will reject. | 5 | ✅ **Done** — `X-Client-Version` + `426` at the gateway, and **no new endpoint**. |
 
-### Sprint 10 so far — the platform thesis held
+## Sprint 10 close — the platform thesis held ✅
 
-**Four of five stories done, 23 of 28 points.** The headline result is what the second consumer
+**Five of five stories, 28 of 28 points.** The headline result is what the second consumer
 *did not* need:
 
 | It needed | It did not need |
@@ -804,6 +804,71 @@ belongs to — the app was right every time. Sprint 7 a working-day direction, S
 depended on today, Sprint 9 a rollup and a hand-traced depth, Sprint 10 a card count. The rule has
 earned promotion from an observation to a habit: **an expected value I computed myself is the least
 trustworthy line in the change, and running it is the only thing that has ever caught it.**
+
+### MC-405 — the rule this sprint deliberately broke, and why that was right
+
+A native app does not update itself. An `mc-field` build on a crew's personal phone runs until
+somebody chooses to replace it, which can be never — so the platform needs to refuse a version it
+knows is wrong rather than accept its writes and repair the data afterwards.
+
+**Enforced at the gateway**, which contradicts this plan's firmest rule — *a gateway is a router,
+not a network boundary, so every service authorizes for itself* ([§8f](./platform-architecture.md),
+MC-203, MC-311). The contradiction is real and the rule still holds, because the threat models are
+opposite:
+
+| | Authorization | Version gating |
+|---|---|---|
+| Defends against | A caller who wants in | A client that is outdated but **honest** |
+| Can it bypass the gateway? | Yes — every service answers on its own port | No — the gateway URL is the only address it was ever given |
+| So the check belongs | In every service | At the edge |
+
+An attacker can send any version string they like. That is fine: they could send none. This gate is
+not what stops them — it stops a phone in a pocket in the wrong year.
+
+**No new endpoint.** The header rides on every request, so the first call the app makes is the one
+that gets refused. A "fetch the minimum version" endpoint would have been skippable by exactly the
+kind of old build the gate exists to catch.
+
+The design is **deliberately permissive in four places**, each of which would otherwise turn a
+safety feature into an outage:
+
+| Passes | Because |
+|---|---|
+| No header | `mc-dashboards` sends none. Refusing an unidentified client turns a version gate into a breaking change for every existing consumer, shipped under a name that sounds like safety |
+| An unknown client name | MC-701's entire claim is that a new consumer needs no core change. A gateway that blocked every app it had not been told about would make that false, and fail closed on the one path that must stay open |
+| A garbled header | A typo is not evidence of an expired build |
+| Anything outside `/api/` | ⬇️ see below |
+
+⚠️ **That last one was found by writing the test, not the filter.** The gate as first written
+answered `426` to `/actuator/health` — and Container Apps restarts a container whose probe fails, so
+the first person to configure a floor would have put the gateway into a permanent crash loop whose
+symptom looks like anything except a version gate.
+
+**A second one nearly shipped the same way.** The filter answers the request itself and so never
+reaches the gateway's own CORS handling, which means a browser would have blocked the `426` before
+the app could read it — the client that most needs to render "update required" seeing an opaque
+network error instead. The gate would have been working perfectly and looking broken. CORS headers
+are now set by hand on the refusal. **This is the third time this codebase has hit the same shape of
+bug**: `REVOKE` that ran without error and enforced nothing, Ionicons that resolved by name and
+rendered blank, and now a gate whose answer never arrives.
+
+**Version comparison is numeric, and there is a test named for why.** Lexically `"0.10.0" < "0.9.0"`,
+so a `String::compareTo` gate locks out the *newest* build the day 0.10.0 ships — blocking precisely
+the users who updated, on a day nobody would connect to a change made months earlier.
+
+**The floors are configuration, not code** (`CLIENT_MINIMUM_MC-FIELD=0.3.0`). Raising one is the
+reaction to a defect discovered in the field, at exactly the moment nobody wants to cut a gateway
+release to do it.
+
+⚠️ **One piece of debt, stated rather than hidden:** `APP_VERSION` in `mc-field` is kept in step with
+`package.json` **by hand**. A build claiming a version it is not would pass a phone the gate exists
+to stop, silently — the worst failure this feature has. Deriving it at build time is a small CI
+change and is carried with MC-345.
+
+**Verified by driving it: 38 assertions**, up from 31. Including the case that is easy to miss — a
+phone already loaded when the floor is raised meets the gate **mid-update, with a reason typed in**,
+not on startup. Both paths reach the same screen; without that, one of them shows "something went
+wrong" for a condition the platform stated precisely.
 
 ### What the audit of `mc-field` found before a line was written
 
@@ -954,7 +1019,7 @@ Then Sprint 1 — extracting the design system needs no backend, no Azure, and n
 
 ---
 
-## Where things actually stand · 2026-08-24 (end of Sprint 9)
+## Where things actually stand · 2026-08-24 (end of Sprint 10)
 
 **Sprints 1–9 complete.** 125 tests on the milestone service, all green on CI. The three web apps
 deploy on merge. **The demo runs**: sign in, change a real date with a reason, watch variance and
@@ -964,15 +1029,16 @@ RAG recompute server-side, reload, and it is still there.
 client at all** — what remains in `data.ts` is a preview calculation labelled as an estimate, a
 fallback threshold pair, and one seed date the S-curve still needs (MC-341).
 
-**Sprint 10 is open and mostly done — MC-401 to MC-404 are complete, 23 of 28 points.** Field reads
-and writes the same API the dashboards do, signed in as a real person, and it needed **one** new
-seam to get there. 131 tests green on the milestone service.
+**Sprints 1–10 complete.** Field reads and writes the same API the dashboards do, signed in as a
+real person, and it needed **one** new seam to get there — `?owner=`. 131 tests on the milestone
+service, 17 on the gateway, all green.
 
 | # | What | Why it is next |
 |---|---|---|
-| 1 | **MC-405** — the minimum-supported-version gate | The only story left in the sprint, and the only one that needs a new backend surface rather than a port. Design it; do not improvise it |
-| 2 | The dev-seed `oid` swap | One `UPDATE`, above. Until it runs, a real sign-in correctly sees an empty list |
-| 3 | Sprint 11 — the offline outbox | Genuinely unblocked: `Idempotency-Key` is already going out on every Field write |
+| 1 | **Sprint 11 — the offline outbox** | The next sprint, and genuinely unblocked: `Idempotency-Key` already goes out on every Field write, so the replay contract exists before the queue that needs it |
+| 2 | MC-339 / MC-340 / MC-341 | Carried into 11. Two read endpoints and two dates — the drawer's dead panels and the S-curve's last seed constant |
+| 3 | MC-345 — the browser harness | Also in 11. Three sprints of ad-hoc harnesses is enough; it also removes the hand-kept `APP_VERSION` that MC-405 left behind |
+| 4 | The dev-seed `oid` swap | One `UPDATE`, above. Needs your Entra object id. Until it runs, a real Field sign-in correctly sees an empty list |
 
 ⚠️ **Sprint 11's idempotent replay no longer reaches back into the API — MC-337 landed early.**
 `Idempotency-Key` is on both write endpoints and keyed by `(actor, key)`, so Field's outbox has
