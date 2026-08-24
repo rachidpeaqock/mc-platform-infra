@@ -1,0 +1,61 @@
+{
+  "name": "Milestone Command platform",
+
+  // Ubuntu rather than a language image: nothing is compiled in here. The
+  // Java services are pulled from GHCR as images, and Maven cannot run on
+  // the machine this project is developed from anyway.
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+
+  "features": {
+    // Needed to run compose.yml — Postgres, Kafka, the registry, the
+    // gateway and the milestone service.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    // For the Angular apps.
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  // 4 cores because Kafka, Postgres and two JVMs share this box. On 2
+  // cores the JVMs lose their startup race with the Eureka health check
+  // and the gateway spends a minute logging connection refusals.
+  "hostRequirements": { "cpus": 4, "memory": "8gb", "storage": "32gb" },
+
+  "customizations": {
+    "codespaces": {
+      // The platform is many repos and a Codespace checks out one. These
+      // are cloned as siblings by setup.sh, which needs read access —
+      // GitHub asks you to authorise this once, on first creation.
+      "repositories": {
+        "rachidpeaqock/mc-milestone-service": { "permissions": { "contents": "read" } },
+        "rachidpeaqock/mc-dashboards": { "permissions": { "contents": "read", "packages": "read" } },
+        "rachidpeaqock/mc-shell": { "permissions": { "contents": "read", "packages": "read" } },
+        "rachidpeaqock/mc-templates": { "permissions": { "contents": "read", "packages": "read" } },
+        "rachidpeaqock/mc-field": { "permissions": { "contents": "read", "packages": "read" } }
+      }
+    },
+    "vscode": {
+      "extensions": [
+        "angular.ng-template",
+        "ms-azuretools.vscode-docker",
+        "github.vscode-github-actions"
+      ]
+    }
+  },
+
+  "forwardPorts": [4200, 8080, 8761, 5432],
+  "portsAttributes": {
+    "4200": { "label": "dashboards", "onAutoForward": "notify" },
+    // ⚠️ Must be PUBLIC. The browser runs on your machine, not in the
+    // Codespace, so it calls the gateway across the internet — a private
+    // forward would answer with a GitHub login page instead of the API,
+    // and the app would report a CORS failure that has nothing to do with
+    // CORS.
+    "8080": { "label": "api-gateway", "visibility": "public" },
+    "8761": { "label": "eureka" },
+    "5432": { "label": "postgres" }
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+
+  "remoteUser": "vscode"
+}
