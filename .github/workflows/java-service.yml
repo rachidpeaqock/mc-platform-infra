@@ -136,6 +136,15 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Azure sign-in by OIDC. GitHub mints a short-lived token that Azure
+      # trusts because of a federated credential naming this exact repo and
+      # branch — so there is no password in Azure and no secret in GitHub.
+      #
+      # ⚠️ Callers must grant `id-token: write` too. A called workflow can
+      # never hold more permission than its caller, and omitting it fails
+      # the whole run with `startup_failure` at 0s, exactly as
+      # `packages: write` did in Sprint 4.
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -148,14 +157,52 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # ---- Azure Container Registry -------------------------------
+      # Container Apps pulls from ACR with a managed identity, so nothing
+      # at runtime holds a registry credential. GHCR stays as the copy a
+      # developer pulls for local compose.
+      #
+      # Signing in BEFORE the build matters: buildx pushes straight from
+      # its build cache and never loads the image into the local docker
+      # store, so `docker tag` afterwards would fail with "No such image".
+      # One build, both registries, identical digest.
+      #
+      # Skipped entirely when ACR_NAME is unset, so a repo not wired to
+      # Azure still builds.
+      - name: Sign in to Azure
+        if: vars.ACR_NAME != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign in to ACR
+        if: vars.ACR_NAME != ''
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      - name: Work out the tags
+        id: tags
+        run: |
+          GHCR="ghcr.io/${{ github.repository_owner }}/${{ inputs.service-name }}"
+          {
+            echo "list<<EOF"
+            echo "$GHCR:main"
+            echo "$GHCR:${{ github.sha }}"
+            if [ -n "${{ vars.ACR_NAME }}" ]; then
+              ACR="${{ vars.ACR_NAME }}.azurecr.io/${{ inputs.service-name }}"
+              echo "$ACR:main"
+              echo "$ACR:${{ github.sha }}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ inputs.service-name }}:main
-            ghcr.io/${{ github.repository_owner }}/${{ inputs.service-name }}:${{ github.sha }}
+          tags: ${{ steps.tags.outputs.list }}
           # GitHub Actions cache keeps Maven dependency layers warm between
           # runs; without it every image build re-resolves the whole tree.
           cache-from: type=gha
