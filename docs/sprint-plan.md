@@ -437,14 +437,37 @@ The lesson is narrow and worth keeping: variance depends only on scheduled versu
 
 **Goal:** the first end-to-end vertical slice. **This is the release that matters.**
 
-| ID | Story | Pts |
-|---|---|---|
-| **MC-331** | As **P2 (PM)**, if someone else moved a milestone while I was editing, I get "M. Castellano moved this to 24 Jul" instead of silently overwriting them (`@Version` + `If-Match` → 409). | 8 |
-| **MC-332** | As **P2 (PM)**, I see what a slip threatens, via a recursive CTE with cycle protection and a depth cap. | 5 |
-| **MC-333** | As **P1 (sponsor)**, the exec dashboard loads from **one aggregate query**, not by shipping every milestone to the browser. | 5 |
-| **MC-334** | As **P2 (PM)**, `mc-dashboards` reads and writes through the API, with loading, error and 409-conflict states. | 8 |
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-331** | As **P2 (PM)**, if someone else moved a milestone while I was editing, I get "M. Castellano moved this to 24 Jul" instead of silently overwriting them (`@Version` + `If-Match` → 409). | 8 | ✅ **Done** — the version is inside the `UPDATE`'s `WHERE`, so check and write are one statement. The 409 carries the current date, version and last editor. |
+| **MC-332** | As **P2 (PM)**, I see what a slip threatens, via a recursive CTE with cycle protection and a depth cap. | 5 | ✅ **Done** — a slip on m17 reaches first LNG five links away and the handover at seven. |
+| **MC-333** | As **P1 (sponsor)**, the exec dashboard loads from **one aggregate query**, not by shipping every milestone to the browser. | 5 | ✅ **Done** — `GET /projects/{id}/summary`. Headline counts, lost days by reason, worst exposure. |
+| **MC-334** | As **P2 (PM)**, `mc-dashboards` reads and writes through the API, with loading, error and 409-conflict states. | 8 | 🔄 **Half done — the data layer only.** See below. |
 
-**Demo:** open Dashboards, change a real date with a reason, watch variance and RAG recompute server-side, see it in the audit trail, reload and it's still there. **The product is real from here.**
+**Backend: 98 tests green.** Front end builds.
+
+### ⚠️ MC-334 is not finished, and the demo does not run yet
+
+What exists: a typed API client, `ProjectStore` with a single `LoadState` (never two flags true at once), per-row saving state, and the 409 held **as state rather than thrown away** — a lost race is a decision the user makes, not an error to flash and dismiss.
+
+What does not:
+
+1. **The components still read `StoreService`**, the localStorage prototype store. `ProjectStore` is a parallel implementation nothing renders yet. Swapping them is mechanical but it is real work.
+2. **No MSAL.** Every call needs an Entra token. There is one injection token (`ACCESS_TOKEN`) with a dev provider reading `sessionStorage.mcToken`, so a pasted token works against the real API — but without one, every request is a 401.
+
+MSAL was left out deliberately rather than forgotten: scattering `acquireTokenSilent()` through the data layer would put an authentication library's API in every component that loads a milestone. Behind that token there is **one line in `main.ts`** to change.
+
+**So the sprint's demo — change a date, watch variance recompute server-side, reload and it is still there — is not yet possible.** The API does all of it; the browser cannot reach it authenticated. Two stories remain before the claim in this plan is true.
+
+### The contract check earned its keep, by catching me
+
+I recorded that this change would be additive. **It was breaking**: both write endpoints now require `If-Match`, so a previously working client gets 428. The baseline diff showed it, and the API went to **2.0.0** rather than shipping a break as a minor bump.
+
+The path stays `/api/v1` because this API has never had a consumer — MC-334 is the first, in this same sprint. That is a one-time licence and the reasoning is written into `OpenApiConfiguration` so nobody reads the precedent as permission.
+
+### Arithmetic I got wrong for the third sprint running
+
+`deepestLevel` was 7, not the 6 I hand-traced. Sprint 7 it was a working-day direction; Sprint 8 it was a status that depended on today's date. The pattern is consistent enough to name: **when a test's expected value comes from me counting something, it is the most likely thing in the commit to be wrong** — and every one of them was caught by running it rather than by re-reading it.
 
 ---
 
