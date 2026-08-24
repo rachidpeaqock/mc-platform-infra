@@ -92,6 +92,16 @@ Subscription: **Free Trial with the spending limit ON** — Azure disables the s
 | Application Insights | `appi-milestone-command-dev` | francecentral |
 | Static Web App ×3 | `stapp-mc-{shell,dashboards,templates}-dev` | eastus2 |
 
+The three apps are **live**:
+
+| App | URL |
+|---|---|
+| shell | https://gentle-moss-010767c0f.7.azurestaticapps.net |
+| dashboards | https://yellow-sand-06533ac0f.7.azurestaticapps.net |
+| templates | https://orange-moss-08f7c2d0f.7.azurestaticapps.net |
+
+A push to `main` publishes; a pull request gets its own preview environment, torn down when it closes. The deploy job ships the artifact the build job already verified rather than rebuilding — a deploy that rebuilds can ship a bundle the checks never saw.
+
 ⚠️ **The regions are inconsistent because Azure forced it, not by choice.** This subscription is refused in `westeurope` with `RequestDisallowedByAzure: region not accepting new customers`, and Static Web Apps does not exist in `francecentral` at all. Each resource sits in the nearest region that would accept it. Worth re-checking before the production subscription is set up — this is a free-trial capacity restriction, not a permanent one.
 
 ### Identity (Entra)

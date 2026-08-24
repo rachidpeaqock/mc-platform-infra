@@ -151,7 +151,7 @@ Nothing else carried. **Sprint 1 closed at 22 points** (MC-103 re-pointed 3 → 
 |---|---|---|---|
 | **MC-111** | As a **developer**, I scaffold `mc-dashboards` and migrate the 7 dashboard files. | 5 | ✅ **Done** — builds clean; rendered and verified: 32 PM rows, hue-driven badges, top bar wired, **zero console errors**. |
 | **MC-112** | As a **developer**, I scaffold `mc-templates` and migrate its 2 files. | 3 | ✅ **Done** — builds clean. |
-| **MC-113** | As a **developer**, each repo builds via GitHub Actions, with SWA deploy. | 5 | 🔄 **Build wired; deploy job still to reinstate** — the three Static Web Apps now exist and each app repo holds its deployment token. What remains is re-adding the `deploy` job removed in Sprint 2, this time with `permissions: pull-requests: write` on the **caller**, now that the `startup_failure` cause is known. ➡️ **Sprint 16.** |
+| **MC-113** | As a **developer**, each repo builds via GitHub Actions, with SWA deploy. | 5 | ✅ **Done** — the deploy job removed in Sprint 2 is reinstated and green on all three apps. The fix was `permissions: pull-requests: write` on the **caller**, exactly as the Sprint 4 root cause predicted. All three sites now serve the app; pushes to `main` publish, PRs get their own preview environment. |
 | **MC-114** | As a **developer**, one reusable workflow in `mc-platform-infra` that both repos call. | 5 | ✅ **Done** — both repos call it; it resolves and runs. Also asserts the built CSS actually contains `--primary`, so a design-system regression can't ship a correctly-built, unstyled app. |
 
 ### Migration decisions
@@ -261,7 +261,9 @@ The Sprint 2 Angular `deploy` job failed for exactly the same reason: it asked f
 
 Two hypotheses were tested and rejected on the way: hyphenated inputs in job-level expressions (`inputs.publish-image`), and third-party action resolution. Neither was the cause; the bisect — caller with no `uses:`, then a callee stripped to a single `echo` — is what found it.
 
-⚠️ **Sprint 16 owes a follow-up:** the Angular workflow's SWA deploy job can now be reinstated correctly, by granting `pull-requests: write` in each app's caller.
+✅ **Settled.** The Angular SWA deploy job was reinstated with `pull-requests: write` granted in each caller, and went green on all three apps first try — confirming the diagnosis rather than just working around it.
+
+One correction worth recording: `java-service.yml` carried a comment claiming a hyphenated input in a job-level `if:` causes the same 0s failure. That was a bisecting hypothesis that turned out to be **wrong**, and it sat in the file for two sprints looking like a finding. `angular-app.yml` uses `app-name` in exactly that position and is fine. The comment has been corrected — a confidently-worded wrong note in shared infrastructure is worse than no note.
 
 > **Pin the stack here:** Spring Boot **4.0.5** + Spring Cloud **2025.1.1**. Boot 4.1 has no compatible Spring Cloud release train ([backend §2](./backend-architecture.md#2-stack-and-versions)).
 
