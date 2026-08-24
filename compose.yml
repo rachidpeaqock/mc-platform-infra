@@ -118,6 +118,42 @@ services:
         # nothing and logs confusing connection refusals for a minute.
         condition: service_healthy
 
+  # Runs the migrations without Maven.
+  #
+  # MC-304 makes migrating a discrete step, and the documented way to run it
+  # is `mvn flyway:migrate` from the service repo. That is impossible on the
+  # original development machine — corporate TLS interception plus an
+  # unreachable internal Maven mirror — which left the database unmigratable
+  # and therefore the service unstartable, locally, for anyone on that
+  # machine.
+  #
+  # Flyway's own image needs no Maven and no JDK. Same migrations, same
+  # ordering, run by the tool itself.
+  #
+  #   docker compose --profile migrate run --rm migrate
+  #
+  # Mounts are relative, so this assumes the repos are siblings — the same
+  # assumption milestone-command.code-workspace already makes.
+  migrate:
+    image: flyway/flyway:11
+    profiles: [migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../mc-milestone-service/src/main/resources/db/migration:/flyway/sql/migration:ro
+      # The Meridian fixture. In src/test/resources so it can never reach a
+      # deployed environment; mounted here because a local database with no
+      # data is not much of a demo.
+      - ../mc-milestone-service/src/test/resources/db/dev:/flyway/sql/dev:ro
+    command: >
+      -url=jdbc:postgresql://postgres:5432/milestone_db
+      -user=milestone_svc
+      -password=milestone_svc
+      -locations=filesystem:/flyway/sql/migration,filesystem:/flyway/sql/dev
+      -connectRetries=10
+      migrate
+
   milestone-service:
     image: ghcr.io/rachidpeaqock/mc-milestone-service:main
     ports:

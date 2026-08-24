@@ -34,9 +34,22 @@ One VS Code window, all twelve folders, each still its own repo in the SCM view.
 Then bring the topology up:
 
 ```bash
-docker compose up -d                      # registry, gateway, Postgres, Kafka
-docker compose --profile tools up -d      # adds kafka-ui on :8090
+docker compose up -d                                  # registry, gateway, Postgres, Kafka
+docker compose --profile migrate run --rm migrate     # schema + the Meridian fixture
+docker compose --profile tools up -d                  # adds kafka-ui on :8090
 ```
+
+The migrate step runs **once**, before anything can serve a request — `mc-milestone-service` deliberately refuses to start against an un-migrated database (MC-304). It uses Flyway's own image rather than `mvn flyway:migrate`, because **Maven cannot run on the original development machine at all** and the documented Maven route left the database unmigratable there. Same migrations, same ordering, no JDK required.
+
+### Seeing it work end to end
+
+```bash
+cd ../mc-dashboards && npm start        # http://localhost:4200
+```
+
+Sign in with your Entra account, and the exec dashboard loads from the API — counts, RAG, lost days by reason, all computed server-side. Change a real date with a reason and watch variance recompute without the browser calculating anything.
+
+⚠️ **This works on `localhost`, not against the deployed Static Web Apps.** Those are built with the API base URL still pointing at `http://localhost:8080`, and the gateway's CORS policy only admits `localhost` origins. Pointing the deployed apps at a deployed gateway is Sprint 17 — there is no gateway in Azure yet.
 
 The Java services are **pulled from GHCR, not built** — a Codespace has one repo checked out, not nine. Working on one? Stop its container and run it from the IDE on the same port; everything else keeps working.
 
