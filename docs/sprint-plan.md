@@ -271,15 +271,21 @@ Two hypotheses were tested and rejected on the way: hyphenated inputs in job-lev
 
 ➡️ **Deferred past Sprint 6 by choice.** The milestone service was built first, so `catalog`/`audit`/`schedule` now exist as conventions the build does not yet enforce. That is the debt this sprint was meant to prevent, and it grows with every module added — MC-211 and MC-212 should land before the second service, not after.
 
-| ID | Story | Pts |
-|---|---|---|
-| **MC-211** | As a **developer**, `ApplicationModules.verify()` and ArchUnit rules fail the build on a boundary violation. | 5 |
-| **MC-212** | As a **developer**, an ArchUnit rule fails the build if `mc-platform-commons` ever contains an `@Entity` or a domain type. | 3 |
-| **MC-213** | As a **developer**, CI publishes the OpenAPI spec on every merge and **fails on an unversioned breaking change**. | 5 |
-| **MC-214** | As a **developer**, a schema registry with backward-compatibility enforcement gates every event-schema change. | 5 |
-| **MC-215** | As a **developer**, distributed tracing flows browser → gateway → service into App Insights. | 3 |
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-211** | As a **developer**, `ApplicationModules.verify()` and ArchUnit rules fail the build on a boundary violation. | 5 | 🔄 In progress |
+| **MC-212** | As a **developer**, an ArchUnit rule fails the build if `mc-platform-commons` ever contains an `@Entity` or a domain type. | 3 | 🔄 **Rescoped** — `mc-platform-commons` does not exist, so the rule guards the shared kernel that does. Moves there unchanged when the library is created. |
+| **MC-213** | As a **developer**, CI publishes the OpenAPI spec on every merge and **fails on an unversioned breaking change**. | 5 | 🔄 **Split** — contract pinned against a committed baseline, spec published from every build. Breaking-vs-additive classification deferred, see below. |
+| **MC-214** | As a **developer**, a schema registry with backward-compatibility enforcement gates every event-schema change. | 5 | ➡️ **Sprint 10** — there are no events yet. Nothing produces to Kafka and no schema exists, so this would gate an empty set. Belongs with the first published event. |
+| **MC-215** | As a **developer**, distributed tracing flows browser → gateway → service into App Insights. | 3 | ⬜ **Blocked on MC-002** (Azure subscription). The instrumentation half can land earlier; the destination cannot. |
 
 **This sprint has no demo and no user value, and skipping it is the single most expensive decision available in this plan.** Every rule here is trivial to add now and requires fixing violations *plus* writing tests later.
+
+### Why two stories moved rather than shrank
+
+A fitness function that guards nothing is worse than no fitness function: it passes, it looks like coverage, and it gives false confidence in a review. MC-214 would gate an empty set of schemas. MC-215 can send traces nowhere. Both are written down with a trigger — first published event, and the Azure subscription — rather than being quietly dropped or faked.
+
+MC-213 split differently: **pinning the contract** and **classifying a change as breaking** are separate jobs, and only the first is useful before a consumer exists. `OpenApiContractTest` compares the generated spec to a committed `api/openapi.json`, so no controller edit can change the public shape of the service without a human committing the new spec — the diff *is* the review. Automated breaking-change detection (oasdiff) earns its keep once `mc-api-client` is generated from the spec in Sprint 9, and is scheduled there.
 
 ---
 
