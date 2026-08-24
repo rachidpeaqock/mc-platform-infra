@@ -446,7 +446,19 @@ The lesson is narrow and worth keeping: variance depends only on scheduled versu
 | **MC-333** | As **P1 (sponsor)**, the exec dashboard loads from **one aggregate query**, not by shipping every milestone to the browser. | 5 | ✅ **Done** — `GET /projects/{id}/summary`. Headline counts, lost days by reason, worst exposure. |
 | **MC-334** | As **P2 (PM)**, `mc-dashboards` reads and writes through the API, with loading, error and 409-conflict states. | 8 | 🔄 **Half done — the data layer only.** See below. |
 
-**Backend: 98 tests green.** Front end builds.
+### Found during Sprint 9, logged here rather than remembered
+
+Three gaps surfaced while putting the front end on the API. None were in the plan; all are real.
+
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-335** | As **P2 (PM)**, I create, rename and delete milestones through the API, so the PM view can leave localStorage entirely. | 8 | ⬜ **To do** — `azure-deployment-plan.md` §5 specifies these endpoints and no sprint ever picked them up. Sprint 8 built the *write* path (dates, re-baseline) and CRUD fell through the gap between them. **The PM view cannot be fully swapped until this exists.** |
+| **MC-336** | As **P2 (PM)**, I see a milestone's slip history, so the reason badge shows what actually caused the delay. | 3 | ⬜ **To do** — the milestone tree carries no audit log, so `lastReason()` returns null and the badge silently does not render. Probably better solved by carrying the last reason on the exposure row, the way `threatens` now is, than by a full history endpoint the exec screen does not need. |
+| **MC-337** | As a **field user**, replaying a queued update after a lost response does **not** write a second audit entry. | 5 | ⬜ **To do — before Sprint 11, not during it.** An `Idempotency-Key` header on the write endpoints, and a table of keys already applied. |
+
+⚠️ **MC-337 is the one that matters most and looks least urgent.** Sprint 11 builds Field's offline outbox, and an outbox retries on any response it did not receive — including the ones that succeeded. Without a key, every such retry appends a duplicate entry to the audit trail. That trail is what a delay claim is argued from, so duplicating it is not a cosmetic bug; it is the product's core asset quietly becoming untrustworthy. Adding it now costs a header and a table. Adding it after Field ships means reconciling data already written.
+
+**Backend: 105 tests green.** Front end builds. The exec dashboard reads entirely from the API.
 
 ### ⚠️ MC-334 is not finished, and the demo does not run yet
 
