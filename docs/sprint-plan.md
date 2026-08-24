@@ -97,9 +97,11 @@ Every story, no exceptions. **The last four are what keep the architecture from 
 | **MC-001** | As a **developer**, I install **JDK 25** and set `JAVA_HOME`, so Spring Boot 4 builds at all. | 1 | ➡️ **Sprint 4**, rescoped — **JDK 25 turned out not to be required.** Boot 4.0's baseline is JDK 17 and JDK 17 is already installed. What remains is fixing `PATH` (resolves to Java 8) and `JAVA_HOME` (points at 19), and that isn't needed until backend work starts. |
 | **MC-002** | As a **developer**, I create the Azure subscription, resource groups, and a `dev` Container Apps environment. | 3 | ✅ **Done, minus Container Apps** — subscription (Free Trial, spending limit ON), `rg-milestone-command-dev`, providers registered, Entra registrations, GitHub OIDC. **Container Apps deliberately not created**: it bills by the hour whether or not anything runs, the trial credit expires after 30 days, and there is nothing to deploy until Sprint 17. |
 | **MC-003** | As a **developer**, I create the GitHub repos so structure exists before code does. | 2 | ✅ **Done**, rescoped — `gh` 2.97.0 installed and authenticated as `rachidpeaqock` (`repo`, `workflow`, `write:packages`). Repos created **per sprint** rather than 15 empty ones up front; `mc-design-system` is live. |
-| **MC-004** | As a **developer**, I start **Apple Developer Program enrolment** and decide **App Store vs MDM distribution**. | 2 | ⬜ **To do — yours, and urgent.** |
+| **MC-004** | As a **developer**, I start **Apple Developer Program enrolment** and decide **App Store vs MDM distribution**. | 2 | ➡️ **Deferred past all epics** (decided 2026-08-24). Replaced in the meantime by a web CI build for `mc-field` — see Epic E4. |
 
-⚠️ **MC-004 is the one that bites if deferred.** Enrolment and certificates take weeks and block Sprint 12. Start it now, when it costs nothing.
+~~⚠️ **MC-004 is the one that bites if deferred.** Enrolment and certificates take weeks and block Sprint 12. Start it now, when it costs nothing.~~
+
+**Superseded 2026-08-24.** The advice was sound for the original plan and no longer applies: Sprint 12 was unblocked by splitting *writing* the native features from *shipping* them, and Field's code is now compiled by a web CI build instead. The warning is struck through rather than deleted — the reasoning was right at the time, and a tracker that quietly rewrites its own history is worth less than one that shows where it changed its mind.
 
 ---
 
@@ -477,11 +479,30 @@ The path stays `/api/v1` because this API has never had a consumer — MC-334 is
 
 | Sprint | Focus | Key stories |
 |---|---|---|
-| **10** | API + native auth | Field reads/writes the API · MSAL native flow · tokens in Keychain/Keystore · **minimum-supported-version gate with a blocking upgrade screen** |
+| **10** | API + auth | Field reads/writes the API · MSAL flow · **minimum-supported-version gate with a blocking upgrade screen** |
 | **11** | Offline | IndexedDB/SQLite outbox · **idempotent replay** (a lost response must not double-write the audit log) · queued-state UI · conflict-on-replay handling |
-| **12** | Native capabilities + shipping | **Camera — photo evidence on a slip** · GPS site verification · biometric unlock · macOS CI + signing · TestFlight / MDM distribution · device testing |
+| **12** | Native capabilities | **Camera — photo evidence on a slip** · GPS site verification · biometric unlock |
+| **later** | Shipping | macOS CI + signing · Keychain/Keystore token storage · TestFlight / MDM distribution · device testing |
 
-⚠️ **Sprint 12 depends on MC-004 from Sprint 0.** If enrolment hasn't happened, this sprint stalls entirely.
+### 🔀 Re-sequenced: Apple enrolment moves to the end of all epics
+
+**Decided 2026-08-24.** MC-004 is deferred past every epic rather than gating Sprint 12.
+
+The reasoning holds up: enrolment is **pure external latency with no code behind it**. Nothing in Epics E4–E10 is blocked by *writing* Field — only by shipping it to a device. Paying weeks of waiting now, to sit on a certificate that goes unused until the end, buys nothing.
+
+**What replaces it: a web CI build for `mc-field`.** The repo had no CI at all until now, which meant the Field app had never been compiled by anything.
+
+| The web build covers | It does not cover |
+|---|---|
+| TypeScript and templates | Anything behind a Capacitor plugin |
+| The design-system contract | Camera, GPS, biometrics |
+| Every piece of app logic and state | Real device behaviour, gestures, performance |
+
+⚠️ **So a green Field build means "this compiles and its logic holds", not "this works on a phone".** That distinction has to stay explicit or the CI badge becomes a false comfort — it is the reason the shipping row above was split out of Sprint 12 rather than left implied.
+
+**Sprint 12 is no longer blocked.** Camera, GPS and biometrics can be *written* and unit-tested against Capacitor's web fallbacks; what waits for enrolment is running them on hardware and distributing the result. When enrolment happens, the remaining work is signing and distribution — not development.
+
+The risk accepted, stated plainly: **native-only defects accumulate undetected until the first real device run.** That run will find more than it would have if devices had been in the loop throughout. That is a real cost, knowingly taken in exchange for not blocking on a queue.
 
 ---
 
@@ -549,7 +570,8 @@ Stories: extract `identity-service` with its own database · JIT user provisioni
 
 | Risk | Sprint it hits | Mitigation |
 |---|---|---|
-| Apple enrolment not started | 12 | **MC-004 in Sprint 0** |
+| ~~Apple enrolment not started~~ | ~~12~~ | **Retired 2026-08-24** — enrolment moved past all epics, Sprint 12 unblocked by splitting writing from shipping |
+| **Native-only defects invisible until the first device run** | whenever shipping happens | Accepted, not mitigated. The `mc-field` web CI compiles the code and exercises its logic; nothing exercises Capacitor plugins until real hardware. Expect that run to find more than it otherwise would |
 | Fitness functions skipped as "not user value" | 5 | They are the sprint goal — no demo, still non-negotiable |
 | Shared domain library created "just for DTOs" | 6–8 | MC-212 fails the build |
 | Screen-shaped endpoints in the core API | 9 | Aggregation goes in a BFF |
@@ -560,6 +582,24 @@ Stories: extract `identity-service` with its own database · JIT user provisioni
 
 ## What to do first
 
-**Sprint 0, today.** It's 8 points, most of it waiting on other people, and **MC-004 is the only item in this entire plan with a multi-week external lead time.** Start it before you write a line of code.
+*Written before Sprint 0. Kept for the record; see "Where things actually stand" below for the current position.*
+
+~~**Sprint 0, today.** It's 8 points, most of it waiting on other people, and **MC-004 is the only item in this entire plan with a multi-week external lead time.** Start it before you write a line of code.~~
 
 Then Sprint 1 — extracting the design system needs no backend, no Azure, and no decisions you haven't already made.
+
+---
+
+## Where things actually stand · 2026-08-24
+
+**Sprints 1–8 complete. Sprint 9's backend complete.** 98 tests on the milestone service; the three web apps deploy on merge; `mc-field` compiles in CI for the first time.
+
+The one thing standing between here and a demo:
+
+| # | What | Why it is next |
+|---|---|---|
+| 1 | Switch `mc-dashboards` components from `StoreService` to `ProjectStore` | Mechanical. Ends with real data on screen from the real API |
+| 2 | MSAL in `mc-dashboards` | The last thing between the app and the API. Also pre-pays Sprint 10, which needs the same flow for Field |
+| 3 | Sprint 10 — Field on the API | Now genuinely unblocked, since Field builds in CI |
+
+⚠️ **Sprint 11's idempotent replay reaches back into the API.** The write endpoints will need an idempotency key so a Field update retried after a lost response does not write a second audit entry. That is a backend change, and it is cheaper to add before Field is built against the current shape than after.
