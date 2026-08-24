@@ -444,7 +444,7 @@ The lesson is narrow and worth keeping: variance depends only on scheduled versu
 | **MC-331** | As **P2 (PM)**, if someone else moved a milestone while I was editing, I get "M. Castellano moved this to 24 Jul" instead of silently overwriting them (`@Version` + `If-Match` → 409). | 8 | ✅ **Done** — the version is inside the `UPDATE`'s `WHERE`, so check and write are one statement. The 409 carries the current date, version and last editor. |
 | **MC-332** | As **P2 (PM)**, I see what a slip threatens, via a recursive CTE with cycle protection and a depth cap. | 5 | ✅ **Done** — a slip on m17 reaches first LNG five links away and the handover at seven. |
 | **MC-333** | As **P1 (sponsor)**, the exec dashboard loads from **one aggregate query**, not by shipping every milestone to the browser. | 5 | ✅ **Done** — `GET /projects/{id}/summary`. Headline counts, lost days by reason, worst exposure. |
-| **MC-334** | As **P2 (PM)**, `mc-dashboards` reads and writes through the API, with loading, error and 409-conflict states. | 8 | 🔄 **Half done — the data layer only.** See below. |
+| **MC-334** | As **P2 (PM)**, `mc-dashboards` reads and writes through the API, with loading, error and 409-conflict states. | 8 | 🔄 **Exec screen and the date-change path are on the API. PM's tree still is not** — blocked on MC-335, and on MSAL. See below. |
 
 ### Found during Sprint 9, logged here rather than remembered
 
@@ -460,13 +460,26 @@ Three gaps surfaced while putting the front end on the API. None were in the pla
 
 **Backend: 105 tests green.** Front end builds. The exec dashboard reads entirely from the API.
 
+### Four prototype defects the API swap flushed out
+
+Re-pointing components at a real server found bugs that had been sitting in the prototype the whole time. Each was invisible against seed data and would have mattered against a database — worth recording, because the pattern is the point:
+
+| Defect | Why it was invisible |
+|---|---|
+| `confirm()` computed `atrisk` vs `pending` **client-side** from `bizDays()` and a hardcoded threshold | A second implementation of the server's number, ignoring site calendars entirely. The backend ArchUnit rule forbids exactly this and cannot reach into TypeScript |
+| The completion date came from **`AS_OF`, the frozen clock** (2026-06-06) | Marking a milestone done would have written June 6th as the actual date, permanently, into a trail V3's triggers make un-editable |
+| `overallSlip` read **`store.get('m28')`** | A hardcoded id that worked only because the seed happened to name the handover milestone that |
+| `store.impact(id)` called **synchronously from templates**, in two places | Free against an in-memory graph; one HTTP request per row per change-detection cycle against an API |
+
+The last one is the most instructive. `ProjectStore` deliberately exposes `loadImpact()` (a fetch a caller must invoke) and `impactCount()` (reads the cache) rather than a convenient synchronous `impact()`. Adding the convenient version would have made both compile errors disappear **and reintroduced the N+1 invisibly** — the compiler only caught them because the easy shim was refused.
+
 ### ⚠️ MC-334 is not finished, and the demo does not run yet
 
-What exists: a typed API client, `ProjectStore` with a single `LoadState` (never two flags true at once), per-row saving state, and the 409 held **as state rather than thrown away** — a lost race is a decision the user makes, not an error to flash and dismiss.
+What exists: a typed API client; `ProjectStore` with a single `LoadState` (never two flags true at once); per-row saving state; the 409 held **as state rather than thrown away** and rendered in the modal with the current date, so a lost race is a decision the user makes rather than an error to flash and dismiss. **The exec screen reads entirely from the API. Changing a real date writes through it, with `If-Match`.**
 
 What does not:
 
-1. **The components still read `StoreService`**, the localStorage prototype store. `ProjectStore` is a parallel implementation nothing renders yet. Swapping them is mechanical but it is real work.
+1. **The PM tree still reads `StoreService`**, the localStorage prototype store — because create, edit and delete have no endpoints. ➡️ **MC-335.**
 2. **No MSAL.** Every call needs an Entra token. There is one injection token (`ACCESS_TOKEN`) with a dev provider reading `sessionStorage.mcToken`, so a pasted token works against the real API — but without one, every request is a 401.
 
 MSAL was left out deliberately rather than forgotten: scattering `acquireTokenSilent()` through the data layer would put an authentication library's API in every component that loads a milestone. Behind that token there is **one line in `main.ts`** to change.
