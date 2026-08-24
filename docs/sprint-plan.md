@@ -737,11 +737,73 @@ MC-701 in Sprint 17.
 
 | ID | Story | Pts | Status |
 |---|---|---|---|
-| **MC-401** | As **P3 (field crew lead)**, my milestone list comes from the API, so what I see on site is what the project actually says rather than what this phone last stored. | 8 | ⬜ |
-| **MC-402** | As **P3**, I sign in with my own Entra account, so the audit trail records **me** and not a name the app made up. | 5 | ⬜ |
-| **MC-403** | As **P3**, I update a real date with a reason **through the API**, and I am told whether it saved. | 5 | ⬜ |
-| **MC-404** | As **P3**, my list is **the milestones I own**, decided by the server, so a phone on a site connection is not downloading an entire LNG train to filter it locally. | 5 | ⬜ |
-| **MC-405** | As **P3**, a version of this app the platform no longer supports **stops and tells me to update**, rather than writing something the API will reject. | 5 | ⬜ |
+| **MC-401** | As **P3 (field crew lead)**, my milestone list comes from the API, so what I see on site is what the project actually says rather than what this phone last stored. | 8 | ✅ **Done** — `StoreService` deleted with the seed hierarchy, the dependency graph and the client reason list. |
+| **MC-402** | As **P3**, I sign in with my own Entra account, so the audit trail records **me** and not a name the app made up. | 5 | ✅ **Done** — one provider, and nothing else changed. The `ACCESS_TOKEN` seam paid for itself a second time. |
+| **MC-403** | As **P3**, I update a real date with a reason **through the API**, and I am told whether it saved. | 5 | ✅ **Done** — and it can fail, which is the part that did not exist before. |
+| **MC-404** | As **P3**, my list is **the milestones I own**, decided by the server, so a phone on a site connection is not downloading an entire LNG train to filter it locally. | 5 | ✅ **Done** — `?owner=me`, resolved server-side from the token. Contract 2.2.0. |
+| **MC-405** | As **P3**, a version of this app the platform no longer supports **stops and tells me to update**, rather than writing something the API will reject. | 5 | ⬜ **To do** — the only story in this sprint that needs a new backend surface, and it is the one that should be designed rather than ported. |
+
+### Sprint 10 so far — the platform thesis held
+
+**Four of five stories done, 23 of 28 points.** The headline result is what the second consumer
+*did not* need:
+
+| It needed | It did not need |
+|---|---|
+| One new query parameter — `?owner=` | Any change to the write path |
+| Its own store, its own wire types | Any change to authentication |
+| A build-time API base URL | Any change to the reason catalogue, the audit trail, the calendar or the contract's shape |
+
+**MSAL cost one line.** `provideMsalAccessToken()` replaced `provideDevAccessToken()` in `main.ts`
+and nothing else in the app knew. That seam was built in Sprint 9 on the argument that scattering
+`acquireTokenSilent()` through a data layer puts an auth library's API into every component that
+wanted a milestone — and the payoff arrives here, in a *different app*, where the same swap was
+again one line.
+
+**MC-344 landing first was the right call, and it is now demonstrable.** Field's capture sheet reads
+`GET /reason-codes`. Had Sprint 10 gone first, this app would have shipped a ninth copy of the seven
+categories and the same `reason === 'other'` literal, and MC-344 would have had to be done twice.
+
+### What Field being second exposed
+
+**One seam was genuinely missing**, and the fact that it was exactly one is the sprint's actual
+finding. `?owner=` had to be added: `GET /projects/{id}/milestones` served the dashboards perfectly
+and served a phone badly, because it answers "what is the project doing" and Field asks "what am I
+on the hook for". Adding a parameter rather than a Field-shaped endpoint keeps the risk register's
+"screen-shaped endpoints in the core API" line honest — one resource, one extra filter, no
+`/field/my-work`.
+
+Two decisions worth carrying:
+
+**`owner=me` is resolved on the server, from the token.** The alternative — each client decoding its
+own token for an `oid` — spreads a claim name and Entra's pairwise-`sub` trap (MC-324) into every
+consumer, and gets it wrong once per consumer. The server already knows who is asking.
+
+**A filtered tree prunes empty phases and work packages; an unfiltered one does not.** The
+`LEFT JOIN` exists so a planner sees a work package they just created. "Show me mine" is a different
+question, and every empty phase of an LNG train is noise on a phone. Two behaviours from one
+endpoint, and the parameter is what distinguishes them.
+
+**`Idempotency-Key` goes out from Field's very first write**, not from Sprint 11 where the outbox
+arrives. A crew lead retries by hand on a bad connection, and that is the same duplicate a queue
+would cause. The key is **derived from the update** — milestone, date, done-or-not — rather than
+random: a fresh random key per attempt is exactly as useful as sending none, and it would have
+looked correct in review.
+
+### Verified by driving it — 31 assertions at a phone viewport
+
+Including the three states a store that cannot fail never had: a write that **never arrives** (the
+stub drops the socket) leaves the sheet open, keeps what was typed and does not claim to have saved;
+a **409 while the sheet sat in a pocket** renders as a conflict naming the new date; and
+**signed in with nothing assigned** reads as "nothing assigned to you" rather than as a blank
+screen.
+
+⚠️ **Four consecutive sprints now, the wrong half of a test has been my own arithmetic.** Three
+assertions failed on the first run and all three were the *test* being wrong about which tab a card
+belongs to — the app was right every time. Sprint 7 a working-day direction, Sprint 8 a status that
+depended on today, Sprint 9 a rollup and a hand-traced depth, Sprint 10 a card count. The rule has
+earned promotion from an observation to a habit: **an expected value I computed myself is the least
+trustworthy line in the change, and running it is the only thing that has ever caught it.**
 
 ### What the audit of `mc-field` found before a line was written
 
@@ -784,9 +846,25 @@ Three ways out, and the recommendation:
 | **Add `?owner=` to the tree endpoint and seed one owner to the dev account's `oid`** | ~2 points | The server decides what is mine, the wire carries only that, and identity-service later changes *where the id comes from* — not what the endpoint means |
 
 **Recommended: the third.** It is the same shape as every other decision in this plan — put the rule
-on the server, and let the thing that does not exist yet change only the source of an id. The
-fixture change is honest as long as it is written down: **the dev seed will contain one real Entra
-`oid`**, and that is a development-fixture fact, not a production one.
+on the server, and let the thing that does not exist yet change only the source of an id.
+
+**Taken, and half done.** `?owner=` ships and `owner=me` resolves from the token. The **fixture half
+is deliberately not done**, because it needs a value only the account holder has:
+
+```sql
+-- Run once against the dev database, with your own Entra object id.
+-- Find it at portal.azure.com → Microsoft Entra ID → Users → your user →
+-- Object ID, or in the `oid` claim of any token the app already holds.
+UPDATE milestone
+   SET owner_id = '<your-entra-oid>'
+ WHERE owner_id = 'e0000000-0000-4000-8000-000000000005';
+```
+
+Until that runs, a real sign-in sees **"No milestones are assigned to you on this project yet"** —
+which is correct, is tested, and is a state the app now says out loud rather than rendering as a
+blank screen. ⚠️ **This belongs in the dev seed only.** A production database gets its owner ids
+from identity-service in Sprint 17; a hardcoded personal `oid` reaching `V900` is the sort of
+fixture fact that survives into an environment nobody meant it to.
 
 ---
 
@@ -886,14 +964,15 @@ RAG recompute server-side, reload, and it is still there.
 client at all** — what remains in `data.ts` is a preview calculation labelled as an estimate, a
 fallback threshold pair, and one seed date the S-curve still needs (MC-341).
 
-**Sprint 10 is open.** Field on the API — the second consumer, and the first honest test of whether
-this is a platform or an application with three views.
+**Sprint 10 is open and mostly done — MC-401 to MC-404 are complete, 23 of 28 points.** Field reads
+and writes the same API the dashboards do, signed in as a real person, and it needed **one** new
+seam to get there. 131 tests green on the milestone service.
 
 | # | What | Why it is next |
 |---|---|---|
-| 1 | MC-401/402 — Field's API layer and MSAL | The `ACCESS_TOKEN` seam and `ProjectStore` already exist in a proven shape next door. This is a port, not a design |
-| 2 | MC-404 — `?owner=` on the tree endpoint | The first thing a second consumer needs that the first did not. See the decision above before building it |
-| 3 | MC-403 — the write path, and the five defects the audit found | Field's `commit()` defaults an unpicked reason to "Other", computes status client-side, asserts its own actor and cannot fail. Each is worse than its dashboard equivalent |
+| 1 | **MC-405** — the minimum-supported-version gate | The only story left in the sprint, and the only one that needs a new backend surface rather than a port. Design it; do not improvise it |
+| 2 | The dev-seed `oid` swap | One `UPDATE`, above. Until it runs, a real sign-in correctly sees an empty list |
+| 3 | Sprint 11 — the offline outbox | Genuinely unblocked: `Idempotency-Key` is already going out on every Field write |
 
 ⚠️ **Sprint 11's idempotent replay no longer reaches back into the API — MC-337 landed early.**
 `Idempotency-Key` is on both write endpoints and keyed by `(actor, key)`, so Field's outbox has
