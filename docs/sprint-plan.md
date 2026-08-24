@@ -444,11 +444,12 @@ The lesson is narrow and worth keeping: variance depends only on scheduled versu
 | **MC-331** | As **P2 (PM)**, if someone else moved a milestone while I was editing, I get "M. Castellano moved this to 24 Jul" instead of silently overwriting them (`@Version` + `If-Match` → 409). | 8 | ✅ **Done** — the version is inside the `UPDATE`'s `WHERE`, so check and write are one statement. The 409 carries the current date, version and last editor. |
 | **MC-332** | As **P2 (PM)**, I see what a slip threatens, via a recursive CTE with cycle protection and a depth cap. | 5 | ✅ **Done** — a slip on m17 reaches first LNG five links away and the handover at seven. |
 | **MC-333** | As **P1 (sponsor)**, the exec dashboard loads from **one aggregate query**, not by shipping every milestone to the browser. | 5 | ✅ **Done** — `GET /projects/{id}/summary`. Headline counts, lost days by reason, worst exposure. |
-| **MC-334** | As **P2 (PM)**, `mc-dashboards` reads and writes through the API, with loading, error and 409-conflict states. | 8 | 🔄 **Exec screen and the date-change path are on the API. PM's tree still is not** — blocked on MC-335, and on MSAL. See below. |
+| **MC-334** | As **P2 (PM)**, `mc-dashboards` reads and writes through the API, with loading, error and 409-conflict states. | 8 | ✅ **Done.** The PM tree was the last screen holding a second copy of the project and it is off `localStorage` entirely — read, create, rename, delete, re-baseline and date change all through the gateway. Verified by driving a browser against a stub of the real contract, not by reading the diff. See below. |
 
 ### Found during Sprint 9, logged here rather than remembered
 
-Three gaps surfaced while putting the front end on the API. None were in the plan; all are real.
+Eight gaps surfaced while putting the front end on the API — four of them only once the PM tree
+was actually swapped. None were in the plan; all are real.
 
 | ID | Story | Pts | Status |
 |---|---|---|---|
@@ -456,6 +457,11 @@ Three gaps surfaced while putting the front end on the API. None were in the pla
 | **MC-336** | As **P2 (PM)**, I see a milestone's slip history, so the reason badge shows what actually caused the delay. | 3 | ✅ **Done, the smaller way.** The last reason — code, label and hue — is carried on each exposure row rather than adding a history endpoint the exec screen would only reduce to its final entry. The hue travels with it, so adding a reason category server-side needs no client change. |
 | **MC-338** | As a **planner**, I create and rename phases and work packages, so a new project can be structured without SQL. | 5 | ⬜ **To do** — found while building MC-335. Creating a milestone needs a `workPackageId`, and the only way to get a work package that does not already exist is a manual `INSERT`. Deliberately not folded into MC-335: creating the containing structure implicitly from names would make "Piping" typed twice with different capitalisation into two work packages, and nobody would notice until a report split in half. |
 | **MC-337** | As a **field user**, replaying a queued update after a lost response does **not** write a second audit entry. | 5 | ✅ **Done, ahead of Sprint 11 rather than during it.** `Idempotency-Key` header, keyed by `(actor, key)`, claimed with `INSERT … ON CONFLICT DO NOTHING` so check and claim are one statement. Keys expire after 30 days on the existing hourly sweep. |
+| **MC-339** | As **P2 (PM)**, I read one milestone's **delay log and re-baseline history** in the detail drawer, so I can see what actually happened to it rather than only that it is late. | 5 | ⬜ **To do — found while swapping the PM tree.** The drawer's largest panel had no data behind it. MC-336 solved the *exec* badge by carrying the last reason on each exposure row, which is one label; the drawer needs the sequence. The server holds the trail and no endpoint reads it per milestone. **The drawer now says so rather than falling back to the prototype's "No changes — real date still equals scheduled", which would have been a lie on every milestone that has slipped.** |
+| **MC-340** | As **P2 (PM)**, I see a milestone's **predecessors**, so the dependency panel says what this milestone is waiting on. | 3 | ⬜ **To do — found while swapping the PM tree.** Nothing the API returns points upstream. Successors were recoverable for free — `GET /impact` is the transitive closure with a depth on each row, so depth 1 *is* the direct successors, and the drawer renders them from the walk it already fetches. There is no equivalent walking the other way. |
+| **MC-341** | As **P1 (sponsor)**, the S-curve is anchored to the **project's own start and finish dates**, so the x-axis is not a seed constant. | 2 | ⬜ **To do.** `PROJECT.scheduledStart` and a hardcoded `2027-04-15` still drive the chart's geometry — the only surviving use of the seed on the exec screen now that the project's *name* comes from the server. Needs two dates on `GET /projects/{id}`. |
+| **MC-342** | As **any user**, the activity feed and the notification bell show **real events from the platform**, not an empty list. | 3 | ➡️ **Sprint 13**, and now visibly empty rather than quietly wrong. `StoreService` fed the bell from `localStorage` writes; nothing writes there any more, so the feed no longer grows. This is the honest state — the events belong to `activity-service` and Kafka, not to a browser — but it is a **visible regression from the prototype** and must not be discovered as a surprise in Sprint 13. |
+| **MC-343** | As **P1 (sponsor)**, the exec numbers **reflect a change a PM just made**, without a reload. | 3 | ⬜ **To do — found while swapping the PM tree.** `GET /summary` is fetched once per load and never refreshed, so every write leaves it stale: the project row and the whole exec screen keep the old counts until the page reloads. Deliberately *not* fixed by refetching the summary after each write — that is a design choice between refetch, refresh-on-view and the push channel Sprint 14 builds, and picking the first one silently would prejudge it. |
 
 ### The ordering that makes MC-337 work, and the one that makes it useless
 
@@ -470,7 +476,9 @@ Two smaller decisions worth keeping:
 
 ⚠️ **MC-337 was the one that mattered most and looked least urgent.** Sprint 11 builds Field's offline outbox, and an outbox retries on any response it did not receive — including the ones that succeeded. Without a key, every such retry appends a duplicate entry to the audit trail. That trail is what a delay claim is argued from, so duplicating it is not a cosmetic bug; it is the product's core asset quietly becoming untrustworthy. Adding it now costs a header and a table. Adding it after Field ships means reconciling data already written.
 
-**Backend: 105 tests green.** Front end builds. The exec dashboard reads entirely from the API.
+**Backend: 105 tests green.** Front end builds clean. **Both dashboards read and write entirely
+through the API** — and the sprint's demo runs: open Dashboards, change a real date with a reason,
+watch variance and RAG recompute server-side, reload, and it is still there.
 
 ### Four prototype defects the API swap flushed out
 
@@ -485,18 +493,55 @@ Re-pointing components at a real server found bugs that had been sitting in the 
 
 The last one is the most instructive. `ProjectStore` deliberately exposes `loadImpact()` (a fetch a caller must invoke) and `impactCount()` (reads the cache) rather than a convenient synchronous `impact()`. Adding the convenient version would have made both compile errors disappear **and reintroduced the N+1 invisibly** — the compiler only caught them because the easy shim was refused.
 
-### ⚠️ MC-334 is not finished, and the demo does not run yet
+### The PM tree swap — what changed, and the four defects it exposed
 
-What exists: a typed API client; `ProjectStore` with a single `LoadState` (never two flags true at once); per-row saving state; the 409 held **as state rather than thrown away** and rendered in the modal with the current date, so a lost race is a decision the user makes rather than an error to flash and dismiss. **The exec screen reads entirely from the API. Changing a real date writes through it, with `If-Match`.**
+Both blockers are closed: MSAL landed as the one-line provider swap the `ACCESS_TOKEN` seam was
+built for, and MC-335 gave the tree the endpoints it needed. **`localStorage` is gone from both
+dashboards.** What remains on `StoreService` is the notification bell alone — MC-342.
 
-What does not:
+**The tree is now the server's tree.** It was rebuilt by grouping a flat list by phase *name* and
+ordering the result against a hardcoded `PHASE_ORDER` array; it now renders `phase → work package
+→ milestone` as the API returns it, in the `sort` the API returns it in. Two things fall out of
+that. A project whose phases are not the seed's no longer falls back to alphabetical accident. And
+every work package carries its **id**, which is what `POST /milestones` needs — matching on a name
+would target the wrong package the first time two phases both contain a "Piping".
 
-1. **The PM tree still reads `StoreService`**, the localStorage prototype store — because create, edit and delete have no endpoints. ➡️ **MC-335.**
-2. **No MSAL.** Every call needs an Entra token. There is one injection token (`ACCESS_TOKEN`) with a dev provider reading `sessionStorage.mcToken`, so a pasted token works against the real API — but without one, every request is a 401.
+Four defects surfaced. Each was invisible against seed data, and only one is a porting detail:
 
-MSAL was left out deliberately rather than forgotten: scattering `acquireTokenSilent()` through the data layer would put an authentication library's API in every component that loads a milestone. Behind that token there is **one line in `main.ts`** to change.
+| Defect | Why it was invisible |
+|---|---|
+| **The search box never filtered anything.** `query` was a plain field read inside a `computed()`, which only re-runs when a *signal* it read changes | The box accepted text, so it looked like it worked. Nothing downstream ever recomputed. It is a signal now |
+| The audit-trail panel fell back to **"No changes — real date still equals scheduled"** | True against a client-side log that started empty. Against the API it asserts "nothing happened" on every milestone that has slipped — MC-339 |
+| The drawer called `store.impact(id)` **synchronously in three template bindings** | Free against an in-memory graph; three HTTP requests per change-detection cycle against an API. The same N+1 the exec screen had, in a second place |
+| A failed write set the store's `LoadState` to `failed`, **replacing the milestone tree with a full-page error** | Only reachable when a write actually fails, which a store that cannot fail never does. The read path fails the screen; the write path now fails the dialog |
 
-**So the sprint's demo — change a date, watch variance recompute server-side, reload and it is still there — is not yet possible.** The API does all of it; the browser cannot reach it authenticated. Two stories remain before the claim in this plan is true.
+**The rollups needed a decision, not a port.** A phase row shows `done/total`, and under an active
+search the prototype would have shown the *matching* rows. Filtering is a visibility concern —
+hiding rows does not change how a work package is doing — so rollups are computed over the
+unfiltered set and the project row takes its numbers from `GET /summary` directly. The project row
+and the exec screen now cannot disagree, because they are reading the same response.
+
+**Two capabilities were removed rather than faked.** The owner picker is gone: `ownerId` is an
+identity-service id, that service does not exist until Sprint 17, and a list of names would have
+had to send something. Rendering it is handled the same way — two characters of a GUID look
+exactly like initials, which is worse than showing nothing, so an unresolved owner says
+"Unresolved owner". The edit form no longer offers the scheduled date, because the `PATCH`
+endpoint deliberately does not accept one.
+
+### Verified by driving it, not by reading it
+
+The front end has no test runner, and this repo's own record says a green build is not a working
+UI. So the swap was checked by serving the app against a **stub of the real contract**, shaped from
+`MilestoneWriteController` and the wire types, and driving a browser through it: **23 assertions,
+all passing** — the tree renders in server order, search filters rows without moving a rollup, the
+impact walk populates both the successors list and the what-if panel, a date change takes the
+server's recomputed variance, create/rename/delete round-trip, and a **409 forced behind the
+client's back renders the conflict banner naming who got there first, with the modal still open and
+the user's input intact**.
+
+Two of the first run's three failures were the *test* being wrong about what a rollup means — the
+pattern this plan has now recorded in four consecutive sprints. The third was the search bug above,
+and nothing but running it would have found it.
 
 ### The contract check earned its keep, by catching me
 
