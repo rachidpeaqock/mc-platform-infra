@@ -395,14 +395,43 @@ Adding six endpoints failed `OpenApiContractTest` on the first run, which is the
 
 **Goal:** the product's core promise, enforced by the database.
 
-| ID | Story | Pts |
-|---|---|---|
-| **MC-321** | As **P2 (PM)**, I change a milestone's real date **with a mandatory reason**, and the change plus its reason commit atomically. | 8 |
-| **MC-322** | As **any user**, the audit trail is **append-only — enforced by database grants**, not application code. | 5 |
-| **MC-323** | As **P2 (PM)**, I re-baseline a scheduled date with a mandatory justification, role-gated to PM/planner, recorded separately from routine updates. | 5 |
-| **MC-324** | As **any user**, the actor is taken **from the token, never the request body**, so the audit trail can't be forged. | 3 |
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-321** | As **P2 (PM)**, I change a milestone's real date **with a mandatory reason**, and the change plus its reason commit atomically. | 8 | ✅ **Done** — `POST /api/v1/milestones/{id}/real-date`. Tested by asserting that a refused change leaves *nothing* behind: the date unmoved and no audit row. |
+| **MC-322** | As **any user**, the audit trail is **append-only — enforced by database grants**, not application code. | 5 | ✅ **Done in Sprint 6, by trigger rather than grant.** See the note below — the grant approach silently enforces nothing here. |
+| **MC-323** | As **P2 (PM)**, I re-baseline a scheduled date with a mandatory justification, role-gated to PM/planner, recorded separately from routine updates. | 5 | ✅ **Done** — own endpoint, own table, own role gate. A field user may move the forecast on a milestone they own and still cannot re-baseline it. |
+| **MC-324** | As **any user**, the actor is taken **from the token, never the request body**, so the audit trail can't be forged. | 3 | ✅ **Done** — from the token's `oid` claim. |
 
-⚠️ **MC-324 closes a real hole in the prototype**, which sends `by: 'You'` from the client.
+**Sprint 8 complete. 21 points, 87 tests.**
+
+⚠️ **MC-324 closed a real hole in the prototype**, which sent `by: 'You'` from the client. The fix is not validation — **there is nowhere in the request record to put an actor**. A test posts `actorId` and `by` in the body and asserts the audit row still carries the token's identity.
+
+`oid` is used rather than `sub` deliberately: `sub` is pairwise, so the same person gets a different value per application and one human would appear in the trail as several.
+
+### MC-322 was already done, and not the way the story says
+
+The story asks for `REVOKE UPDATE, DELETE`. **That would have enforced nothing.** Flyway connects as the owner of these tables, and a table owner keeps every privilege regardless of `REVOKE` — the statement runs without error and does nothing. Triggers hold regardless of ownership, which is what V3 uses, proven by `AuditImmutabilityTest`. The `REVOKE` remains worth adding in production, where the app should connect as a non-owner role; it is defence in depth, not the control.
+
+### The ordering choice that makes atomicity real
+
+The audit row is inserted **before** the milestone is updated. It sounds backwards — write the thing, then log it — but the reason code is a foreign key into `reason_code`, so an unknown reason fails at the insert and the date never moves. The other order moves the date and *then* discovers the explanation is invalid, and while the transaction still rolls back, the failure arrives after the interesting work rather than before it.
+
+### Authorization: two rules, because there are two acts
+
+`hasRole` cannot express "this row is mine", so the row-level rule is a bean called from `@PreAuthorize`:
+
+| Act | Who |
+|---|---|
+| Change a real date | PM, planner, admin — any milestone. **FIELD — only milestones they own** |
+| Re-baseline | PM, planner only |
+
+The Field app already filters its list to the signed-in user, so this *looked* enforced. It was not — that filtering is a convenience, and until now any field user could post an update for any milestone on the project.
+
+### A test that was wrong, for the second sprint running
+
+`statusIsReDerivedOnWrite` used fixed dates in March 2026 and asserted `atrisk`. By the time it ran, March was in the past and the correct answer was `missed`. **The code was right; the test had drifted with the calendar.**
+
+The lesson is narrow and worth keeping: variance depends only on scheduled versus real, so fixed dates are fine for it. **Status depends on today**, so any test asserting a status must build its dates relative to `now()`. That distinction is now written into the test rather than left to be rediscovered.
 
 ## Sprint 9 — Concurrency, impact, and Dashboards on the API
 
