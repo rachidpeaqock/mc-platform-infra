@@ -448,8 +448,9 @@ The lesson is narrow and worth keeping: variance depends only on scheduled versu
 
 ### Found during Sprint 9, logged here rather than remembered
 
-Eight gaps surfaced while putting the front end on the API — four of them only once the PM tree
-was actually swapped. None were in the plan; all are real.
+Nine gaps surfaced while putting the front end on the API — five of them only once the PM tree was
+actually swapped and the dead prototype code came out behind it. None were in the plan; all are
+real.
 
 | ID | Story | Pts | Status |
 |---|---|---|---|
@@ -460,8 +461,9 @@ was actually swapped. None were in the plan; all are real.
 | **MC-339** | As **P2 (PM)**, I read one milestone's **delay log and re-baseline history** in the detail drawer, so I can see what actually happened to it rather than only that it is late. | 5 | ⬜ **To do — found while swapping the PM tree.** The drawer's largest panel had no data behind it. MC-336 solved the *exec* badge by carrying the last reason on each exposure row, which is one label; the drawer needs the sequence. The server holds the trail and no endpoint reads it per milestone. **The drawer now says so rather than falling back to the prototype's "No changes — real date still equals scheduled", which would have been a lie on every milestone that has slipped.** |
 | **MC-340** | As **P2 (PM)**, I see a milestone's **predecessors**, so the dependency panel says what this milestone is waiting on. | 3 | ⬜ **To do — found while swapping the PM tree.** Nothing the API returns points upstream. Successors were recoverable for free — `GET /impact` is the transitive closure with a depth on each row, so depth 1 *is* the direct successors, and the drawer renders them from the walk it already fetches. There is no equivalent walking the other way. |
 | **MC-341** | As **P1 (sponsor)**, the S-curve is anchored to the **project's own start and finish dates**, so the x-axis is not a seed constant. | 2 | ⬜ **To do.** `PROJECT.scheduledStart` and a hardcoded `2027-04-15` still drive the chart's geometry — the only surviving use of the seed on the exec screen now that the project's *name* comes from the server. Needs two dates on `GET /projects/{id}`. |
-| **MC-342** | As **any user**, the activity feed and the notification bell show **real events from the platform**, not an empty list. | 3 | ➡️ **Sprint 13**, and now visibly empty rather than quietly wrong. `StoreService` fed the bell from `localStorage` writes; nothing writes there any more, so the feed no longer grows. This is the honest state — the events belong to `activity-service` and Kafka, not to a browser — but it is a **visible regression from the prototype** and must not be discovered as a surprise in Sprint 13. |
+| **MC-342** | As **any user**, the activity feed and the notification bell show **real events from the platform**, not an empty list. | 3 | ➡️ **Sprint 13**, and now **explicitly** empty. `StoreService` fed the bell from this app's own `localStorage` writes; nothing writes there any more, so the only thing the feed could still surface was **leftover prototype events from an old browser session, rendered as current activity**. The store and the adapter are deleted rather than left mapping a permanently empty array. A **visible regression from the prototype**, and it must not be discovered as a surprise in Sprint 13. |
 | **MC-343** | As **P1 (sponsor)**, the exec numbers **reflect a change a PM just made**, without a reload. | 3 | ⬜ **To do — found while swapping the PM tree.** `GET /summary` is fetched once per load and never refreshed, so every write leaves it stale: the project row and the whole exec screen keep the old counts until the page reloads. Deliberately *not* fixed by refetching the summary after each write — that is a design choice between refetch, refresh-on-view and the push channel Sprint 14 builds, and picking the first one silently would prejudge it. |
+| **MC-344** | As **P5 (admin)**, a reason category I add server-side **appears in the capture modal**, so the picker is not a second catalogue. | 3 | ⬜ **To do — found while auditing what stayed client-side.** `GET /reason-codes` does not exist, so `REASONS` in `core/data.ts` is still a hardcoded list of seven. Reading a reason back is already correct everywhere — the exec screen takes label and hue from the summary (MC-336), and the design-system badge deliberately holds no catalogue — so **the picker is the last place a client owns domain data**. The consequence is narrow and real: an admin adds a category, and no PM can ever select it. |
 
 ### The ordering that makes MC-337 work, and the one that makes it useless
 
@@ -542,6 +544,38 @@ the user's input intact**.
 Two of the first run's three failures were the *test* being wrong about what a rollup means — the
 pattern this plan has now recorded in four consecutive sprints. The third was the search bug above,
 and nothing but running it would have found it.
+
+### The debt the swap left, paid the same day
+
+`mc-dashboards` is **454 lines lighter**. `StoreService` was 258 lines of which five members were
+still reachable, and `core/data.ts` was a 32-milestone seed hierarchy with no readers left. Both
+are deleted.
+
+**One of them was a hazard rather than clutter.** `StoreService` still exposed `commitReal`,
+`createMilestone`, `editMilestone`, `deleteMilestone` and `rebaseline` — a complete second write
+path, into `localStorage`, that anyone wiring a new screen could have injected and used without
+noticing the data never reached the server.
+
+Three defects came out with it, each invisible against a synchronous seed store:
+
+| Defect | Why it was invisible |
+|---|---|
+| **The frozen clock**, `AS_OF = 2026-06-06`, read in three places | It labelled the chrome and the exec footer "As of" against a live database — and positioned the **TODAY line on the S-curve**, drawing three months of real progress as still in the future, on the one chart a sponsor reads to judge recovery |
+| The exec curve divided by a **zero milestone count** on every load, emitting `<path d="M38.0 NaN …">` until the API answered | The seed store was never empty, so there was no frame in which the count was zero |
+| The bell could still surface **prototype events from an old browser session as current activity** | Only reachable on a browser that had used the prototype — a developer's, before a user's |
+
+**`Milestone` lost `depends`, `log` and `rebaselines`.** The API sends none of them, so the store
+could only fill them with empty arrays — and a typed, always-empty `log` is exactly how the drawer
+came to render "No changes" over milestones with a full audit trail. Removing the fields turns that
+from a silent render into a **compile error**, which is what MC-339 and MC-340 should hit on
+arrival. The compiler caught the store still filling them, which is the argument for doing it.
+
+What survives client-side in `data.ts` is four things, each carrying a comment saying why: the seed
+project (only `scheduledStart`, for the curve's x-axis — MC-341), fallback thresholds, the reason
+picker's catalogue, and `bizDays`/`ragOf` for previewing a change **before it is submitted**. Every
+stored number on every screen is read from the API.
+
+⚠️ **The reason picker is the last place a client owns domain data** — MC-344 above.
 
 ### The contract check earned its keep, by catching me
 
