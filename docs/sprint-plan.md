@@ -360,14 +360,36 @@ Six CI rounds, none of them about the domain. This is the tax for being early on
 
 **Goal:** the numbers are right, and provably so.
 
-| ID | Story | Pts |
-|---|---|---|
-| **MC-311** | As **P5 (admin)**, I configure a **work calendar with holidays and a site work pattern**, so variance reflects the actual site — not a hardcoded Mon–Fri. | 8 |
-| **MC-312** | As a **developer**, `biz_days(from, to, calendar)` is exhaustively unit tested — holidays, year boundaries, negative spans, 6-day weeks. | 5 |
-| **MC-313** | As **P1 (sponsor)**, RAG is derived server-side from variance, status and per-project thresholds, so client and server can never disagree. | 3 |
-| **MC-314** | As a **developer**, an hourly job flips past-due milestones to `missed` (ShedLock so one replica runs it). | 5 |
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-311** | As **P5 (admin)**, I configure a **work calendar with holidays and a site work pattern**, so variance reflects the actual site — not a hardcoded Mon–Fri. | 8 | ✅ **Done** — `schedule` module, six endpoints, writes restricted to `ADMIN`. Reads stay open to any authenticated user: the client needs the pattern to render a date picker that skips non-working days. |
+| **MC-312** | As a **developer**, `biz_days(from, to, calendar)` is exhaustively unit tested — holidays, year boundaries, negative spans, 6-day weeks. | 5 | ✅ **Done** — 22 cases: holidays on weekends, consecutive holidays, cross-calendar isolation, Sun–Thu weeks, single-day weeks, year and leap boundaries, a full year, and null propagation. |
+| **MC-313** | As **P1 (sponsor)**, RAG is derived server-side from variance, status and per-project thresholds, so client and server can never disagree. | 3 | ✅ **Done** — proven by changing thresholds and the calendar and watching the answer change with no milestone written, plus a structural assertion that neither is a column. |
+| **MC-314** | As a **developer**, an hourly job flips past-due milestones to `missed` (ShedLock so one replica runs it). | 5 | ✅ **Done** — four SQL statements over `milestone_view`, so the sweep uses exactly the variance the API serves. |
 
-⚠️ **MC-311 fixes a correctness bug in the prototype:** `bizDays()` counts Mon–Fri only and knows nothing about holidays. That number drives variance, RAG, every threshold, and the exec slippage figure.
+**Sprint 7 complete. 21 points, 69 tests green.**
+
+⚠️ **MC-311 fixed a correctness bug in the prototype:** `bizDays()` counted Mon–Fri only and knew nothing about holidays. That number drives variance, RAG, every threshold, and the exec slippage figure. The function was written calendar-aware in Sprint 6 rather than shipping the bug and fixing it later; this sprint added the administration and the proof.
+
+### Three bugs found in my own work, two before they shipped
+
+**1. A test that was wrong, not the code.** `biz_days(Monday → Saturday)` returns **−1**, and I had asserted 0 by sloppy symmetry with the Saturday→Sunday case. It is right: pulling a milestone from Monday back to Saturday gives Monday back, and Monday is a working day. Going backwards the boundaries mirror — the later date is included, not excluded. The test now states that instead of asserting a guessed number.
+
+**2. `@Transactional` that did nothing.** It sat on `sweepStatuses`, which `sweep()` calls directly. Self-invocation does not pass through the Spring proxy, so the annotation was **dead** and each of the four statements would have committed separately — a sweep that half-applies. Moved to the scheduled entry point.
+
+**3. Statement order in the sweep is load-bearing.** Un-missing must run *first*, so a milestone re-forecast into the future returns to `pending` and is re-evaluated as `atrisk` in the same pass. Written in the intuitive place — last, since it reads like a special case — it would leave a milestone green for an hour despite being ten working days late. There is now a test named for exactly that.
+
+### Authorization arrived a sprint early, deliberately
+
+MC-311 is the first story with a **write** endpoint, and `mc-milestone-service` was not a resource server — the gateway authenticated, the service checked nothing. That was tolerable while everything was read-only and not tolerable for an endpoint that changes every variance figure on a project.
+
+So a slice of Sprint 8 came forward: the service validates tokens itself and `@PreAuthorize("hasRole('ADMIN')")` guards the writes. **This is not duplicating the gateway.** A gateway is a router, not a network boundary — every other service and every scheduled job reaches this one directly on port 8081. Protecting a write endpoint one hop upstream protects it from the internet and from nothing else.
+
+Most of the new tests assert a **refusal**, because the usual way an authorization rule fails is not by wrongly blocking someone — that gets reported in a minute — but by never firing at all.
+
+### The contract check earned its keep immediately
+
+Adding six endpoints failed `OpenApiContractTest` on the first run, which is the design. Reviewing the diff before accepting it showed the change was **purely additive**: `MilestoneView`, `ProjectMilestones`, `Phase`, `WorkPackage` and the milestones endpoint all byte-identical, one path becoming six. No consumer breaks. That is a judgement a person made from a diff, rather than something nobody noticed.
 
 ## Sprint 8 — The write path and the audit trail
 
