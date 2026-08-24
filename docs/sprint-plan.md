@@ -273,9 +273,9 @@ Two hypotheses were tested and rejected on the way: hyphenated inputs in job-lev
 
 | ID | Story | Pts | Status |
 |---|---|---|---|
-| **MC-211** | As a **developer**, `ApplicationModules.verify()` and ArchUnit rules fail the build on a boundary violation. | 5 | 🔄 In progress |
-| **MC-212** | As a **developer**, an ArchUnit rule fails the build if `mc-platform-commons` ever contains an `@Entity` or a domain type. | 3 | 🔄 **Rescoped** — `mc-platform-commons` does not exist, so the rule guards the shared kernel that does. Moves there unchanged when the library is created. |
-| **MC-213** | As a **developer**, CI publishes the OpenAPI spec on every merge and **fails on an unversioned breaking change**. | 5 | 🔄 **Split** — contract pinned against a committed baseline, spec published from every build. Breaking-vs-additive classification deferred, see below. |
+| **MC-211** | As a **developer**, `ApplicationModules.verify()` and ArchUnit rules fail the build on a boundary violation. | 5 | ✅ **Done** — Modulith 2.0.7 + ArchUnit 1.5.0. Passed on the first CI round, which is the argument for doing it now rather than later. |
+| **MC-212** | As a **developer**, an ArchUnit rule fails the build if `mc-platform-commons` ever contains an `@Entity` or a domain type. | 3 | ✅ **Done, rescoped** — `mc-platform-commons` does not exist, so the rule guards the shared kernel that does. Moves there unchanged when the library is created. |
+| **MC-213** | As a **developer**, CI publishes the OpenAPI spec on every merge and **fails on an unversioned breaking change**. | 5 | ✅ **Done, split** — contract pinned against a committed `api/openapi.json`, spec published as a build artifact by every Java service. Breaking-vs-additive classification deferred to Sprint 9, see below. |
 | **MC-214** | As a **developer**, a schema registry with backward-compatibility enforcement gates every event-schema change. | 5 | ➡️ **Sprint 10** — there are no events yet. Nothing produces to Kafka and no schema exists, so this would gate an empty set. Belongs with the first published event. |
 | **MC-215** | As a **developer**, distributed tracing flows browser → gateway → service into App Insights. | 3 | ⬜ **Blocked on MC-002** (Azure subscription). The instrumentation half can land earlier; the destination cannot. |
 
@@ -286,6 +286,24 @@ Two hypotheses were tested and rejected on the way: hyphenated inputs in job-lev
 A fitness function that guards nothing is worse than no fitness function: it passes, it looks like coverage, and it gives false confidence in a review. MC-214 would gate an empty set of schemas. MC-215 can send traces nowhere. Both are written down with a trigger — first published event, and the Azure subscription — rather than being quietly dropped or faked.
 
 MC-213 split differently: **pinning the contract** and **classifying a change as breaking** are separate jobs, and only the first is useful before a consumer exists. `OpenApiContractTest` compares the generated spec to a committed `api/openapi.json`, so no controller edit can change the public shape of the service without a human committing the new spec — the diff *is* the review. Automated breaking-change detection (oasdiff) earns its keep once `mc-api-client` is generated from the spec in Sprint 9, and is scheduled there.
+
+### Sprint 5 is complete — 13 of 21 points, and the rest deliberately parked
+
+**27 tests green.** The three fitness-function stories cost four CI rounds; two of those were bootstrapping the API baseline, which is a one-time cost per service.
+
+**MC-211 and MC-212 passed on the first attempt**, and that is the whole argument for this sprint. There were no violations to fix, because the rules arrived while the service was three modules old. The same rules added after four services would have meant a refactor *plus* the argument about whether it was worth it.
+
+Three rules now hold the design in place:
+
+| Rule | What it stops |
+|---|---|
+| `allowedDependencies` in each module's `package-info.java` | §3's dependency table drifting. Adding an import to an undeclared module breaks the build |
+| `sharedKernelStaysPure` | The shared kernel acquiring an `@Entity` and becoming the lockstep-upgrade coupling point §8e warns about |
+| `thereIsExactlyOneDefinitionOfTheNumbers` | A second implementation of variance or RAG in Java. A method named `calculateVariance` or `bizDays` fails the build |
+
+That last one is blunt on purpose. Someone who writes `calculateVariance()` is not being careless — they are being helpful and have not read the migration that says the database owns it. The build tells them instead of a code review six months later.
+
+⚠️ **One design flaw was caught by writing the test, not by reasoning.** The generated spec contained `"url": "http://localhost:34343"` — springdoc reports the live server address, which under `RANDOM_PORT` differs on every run. Committed as-is, the baseline would have failed the very next build for a reason unrelated to the contract, and a check that cries wolf is a check somebody deletes. Volatile fields are now stripped before comparison, and the bar for adding to that list is that a field genuinely cannot be made stable.
 
 ---
 
