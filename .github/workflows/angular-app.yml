@@ -7,12 +7,26 @@ name: Angular app (reusable)
 # Node version or adding a check happens here, once, rather than in a
 # growing number of near-identical copies.
 #
+#   permissions:            # REQUIRED - see below
+#     contents: read
+#     packages: read
+#     pull-requests: write
 #   jobs:
 #     app:
 #       uses: rachidpeaqock/mc-platform-infra/.github/workflows/angular-app.yml@main
 #       with:
 #         app-name: mc-dashboards
 #       secrets: inherit
+#
+# ⚠️ The caller MUST declare `permissions: pull-requests: write`. A called
+# workflow can never hold more permission than its caller, and these repos
+# default to a read-only token, so requesting it here is an escalation:
+# the entire run fails with `startup_failure` at 0s - no logs, no
+# annotation, nothing that points at permissions.
+#
+# This is exactly what killed the deploy job in Sprint 2. It was removed
+# rather than diagnosed, and the cause only came to light in Sprint 4 when
+# the same failure hit java-service.yml.
 
 on:
   workflow_call:
@@ -25,6 +39,11 @@ on:
         required: false
         type: string
         default: '20'
+      deploy:
+        description: Publish to Azure Static Web Apps (main, plus PR previews)
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -72,3 +91,40 @@ jobs:
           name: ${{ inputs.app-name }}-dist
           path: dist/${{ inputs.app-name }}/browser
           retention-days: 7
+
+  # Deploys the artifact the build job already verified, rather than
+  # rebuilding. A deploy that rebuilds can ship something the checks never
+  # saw — the tokens assertion above would be testing a different bundle
+  # from the one users get.
+  deploy:
+    name: Deploy to Static Web Apps
+    needs: build
+    if: inputs.deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Static Web Apps posts the preview URL as a PR comment. Without this
+      # the deploy still works and the comment silently fails.
+      pull-requests: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.app-name }}-dist
+          path: dist
+
+      # Push to main -> production. Pull request -> its own preview
+      # environment, torn down when the PR closes. The action picks which
+      # from the triggering event; nothing here needs to branch on it.
+      - name: Deploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: dist
+          # Already built and checked in the previous job. Without these the
+          # action tries to detect and build the app itself, which for an
+          # Angular workspace means building the wrong thing or nothing.
+          skip_app_build: true
+          skip_api_build: true

@@ -42,11 +42,14 @@ on:
         type: boolean
         default: true
       publish_image:
-        # Underscore, not a hyphen, and deliberately so: a hyphenated input
-        # referenced from a JOB-level `if:` or `name:` is parsed as
-        # subtraction and fails the whole run with `startup_failure` at 0s,
-        # before any job starts and with no usable error. Hyphens are fine
-        # inside steps — which is what makes it so confusing to diagnose.
+        # Underscore rather than a hyphen, but only as a convention now.
+        #
+        # This originally carried a note claiming a hyphenated input in a
+        # job-level `if:` is parsed as subtraction and causes the 0s
+        # `startup_failure`. That was a hypothesis while bisecting, and it
+        # was WRONG — the cause was the caller's permissions, documented at
+        # the top of this file. `angular-app.yml` uses `app-name` in exactly
+        # that position and is fine.
         description: Build and push a container image to GHCR (main only)
         required: false
         type: boolean
