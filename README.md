@@ -79,7 +79,55 @@ It also asserts the built CSS contains `--primary` — so a design-system regres
 
 ## Infrastructure
 
-`bicep/front-door.bicep` — one origin for the three web apps (`/` → shell, `/dashboards/*`, `/templates/*`), with an origin group per app. Written, not yet deployed; needs the Azure subscription.
+`bicep/front-door.bicep` — one origin for the three web apps (`/` → shell, `/dashboards/*`, `/templates/*`), with an origin group per app. Written, not yet deployed.
+
+### What exists in Azure
+
+Subscription: **Free Trial with the spending limit ON** — Azure disables the subscription rather than billing when the credit runs out, so nothing here can produce a surprise invoice. Everything below is free or inside a free allowance.
+
+| Resource | Name | Region |
+|---|---|---|
+| Resource group | `rg-milestone-command-dev` | westeurope |
+| Log Analytics | `log-milestone-command-dev` | francecentral |
+| Application Insights | `appi-milestone-command-dev` | francecentral |
+| Static Web App ×3 | `stapp-mc-{shell,dashboards,templates}-dev` | eastus2 |
+
+⚠️ **The regions are inconsistent because Azure forced it, not by choice.** This subscription is refused in `westeurope` with `RequestDisallowedByAzure: region not accepting new customers`, and Static Web Apps does not exist in `francecentral` at all. Each resource sits in the nearest region that would accept it. Worth re-checking before the production subscription is set up — this is a free-trial capacity restriction, not a permanent one.
+
+### Identity (Entra)
+
+| Registration | Purpose |
+|---|---|
+| **Milestone Command API** | `api://milestone-command`. Defines the six app roles — `VIEWER`, `EXECUTIVE`, `PM`, `FIELD`, `PLANNER`, `ADMIN` — that land in the token's `roles` claim, and the `access_as_user` scope |
+| **Milestone Command Web** | The three Angular apps. SPA platform, so PKCE with no client secret |
+| **Milestone Command GitHub Actions** | Deployment identity. **No secret** — GitHub OIDC federated credential, `Contributor` scoped to the resource group only |
+
+⚠️ **`requestedAccessTokenVersion` is set to 2 on the API registration and must stay there.** The default of 1 makes Entra issue tokens whose issuer is `https://sts.windows.net/{tenant}/`, which fails validation against the `/v2.0` issuer URI the gateway is configured with — and the resulting error says nothing about token versions.
+
+The Field app's registration is deliberately **not** created yet: its redirect URIs depend on the iOS bundle id and Android signature hash, which do not exist until Apple enrolment (MC-004). Creating it now would mean placeholder values that are certain to change.
+
+### Secrets and how they are stored
+
+Nothing that authenticates is stored where it can leak into a terminal or a chat log:
+
+| Value | Where | Why |
+|---|---|---|
+| Azure client/tenant/subscription id | GitHub **variables** on `mc-platform-infra` | These are identifiers, not credentials — they appear in every token. Storing non-secrets as secrets makes the real ones harder to notice |
+| App Insights connection string | GitHub **secret** on `mc-platform-infra` | Anyone holding it can write telemetry to the resource |
+| SWA deployment tokens | GitHub **secret** on each app repo | Scoped to one static site each |
+| Azure deploy credential | **Does not exist** | Federated OIDC: GitHub proves its identity per run, so there is nothing stored and nothing to rotate |
+
+### Working with this subscription from a corporate machine
+
+The development machine's Azure CLI is signed in to an **Air France** account. Personal work must never run under it, so the personal login lives in its own CLI state directory:
+
+```powershell
+$env:AZURE_CONFIG_DIR = "$HOME\.azure-personal"
+az login --use-device-code      # device code, so the default browser's corporate SSO is bypassed
+az account show                 # verify before doing anything
+```
+
+Set `AZURE_CONFIG_DIR` on **every** invocation. A shell without it points at `~/.azure`, which is the work session.
 
 ## Status
 
