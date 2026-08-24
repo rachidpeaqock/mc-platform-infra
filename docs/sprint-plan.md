@@ -454,9 +454,20 @@ Three gaps surfaced while putting the front end on the API. None were in the pla
 |---|---|---|---|
 | **MC-335** | As **P2 (PM)**, I create, rename and delete milestones through the API, so the PM view can leave localStorage entirely. | 8 | ⬜ **To do** — `azure-deployment-plan.md` §5 specifies these endpoints and no sprint ever picked them up. Sprint 8 built the *write* path (dates, re-baseline) and CRUD fell through the gap between them. **The PM view cannot be fully swapped until this exists.** |
 | **MC-336** | As **P2 (PM)**, I see a milestone's slip history, so the reason badge shows what actually caused the delay. | 3 | ⬜ **To do** — the milestone tree carries no audit log, so `lastReason()` returns null and the badge silently does not render. Probably better solved by carrying the last reason on the exposure row, the way `threatens` now is, than by a full history endpoint the exec screen does not need. |
-| **MC-337** | As a **field user**, replaying a queued update after a lost response does **not** write a second audit entry. | 5 | ⬜ **To do — before Sprint 11, not during it.** An `Idempotency-Key` header on the write endpoints, and a table of keys already applied. |
+| **MC-337** | As a **field user**, replaying a queued update after a lost response does **not** write a second audit entry. | 5 | ✅ **Done, ahead of Sprint 11 rather than during it.** `Idempotency-Key` header, keyed by `(actor, key)`, claimed with `INSERT … ON CONFLICT DO NOTHING` so check and claim are one statement. Keys expire after 30 days on the existing hourly sweep. |
 
-⚠️ **MC-337 is the one that matters most and looks least urgent.** Sprint 11 builds Field's offline outbox, and an outbox retries on any response it did not receive — including the ones that succeeded. Without a key, every such retry appends a duplicate entry to the audit trail. That trail is what a delay claim is argued from, so duplicating it is not a cosmetic bug; it is the product's core asset quietly becoming untrustworthy. Adding it now costs a header and a table. Adding it after Field ships means reconciling data already written.
+### The ordering that makes MC-337 work, and the one that makes it useless
+
+**The idempotency check must run before the version check.** A replay carries the same `If-Match` the original did — but the original succeeded and incremented `row_version`, so that header is now stale. Check the version first and every successful-but-unacknowledged write returns 409, showing the user a conflict *with themselves*. The retry is not a competing edit; it is the same edit arriving twice, and only the key can tell them apart.
+
+A test is named for exactly that case, because the obvious "same key twice" test passes against an implementation that still fails this way in production.
+
+Two smaller decisions worth keeping:
+
+- **Keys expire after 30 days**, not hours. Expiring early is worse than keeping too long — a late replay writes the duplicate the mechanism exists to prevent, and a phone left in a site hut over a shutdown is weeks.
+- **The key is optional.** An interactive browser edit has a human watching; requiring one would make every client carry machinery for a problem only the offline replayer has.
+
+⚠️ **MC-337 was the one that mattered most and looked least urgent.** Sprint 11 builds Field's offline outbox, and an outbox retries on any response it did not receive — including the ones that succeeded. Without a key, every such retry appends a duplicate entry to the audit trail. That trail is what a delay claim is argued from, so duplicating it is not a cosmetic bug; it is the product's core asset quietly becoming untrustworthy. Adding it now costs a header and a table. Adding it after Field ships means reconciling data already written.
 
 **Backend: 105 tests green.** Front end builds. The exec dashboard reads entirely from the API.
 
