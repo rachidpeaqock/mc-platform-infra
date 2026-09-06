@@ -1156,7 +1156,7 @@ written and proven as far as a runner can prove them.
 |---|---|---|---|
 | **MC-123** | As a **developer**, `mc-field` produces an installable Android debug APK, so the app can be run on a real device. | 8 | ✅ **Done** — 4.3 MB, built on a runner, uploaded as an artifact. *(carried from Sprint 3)* |
 | **MC-421** | As **P3 (field crew lead)**, I attach a **photo** to a slip I record, so the reason is evidenced rather than asserted — including with no signal. | 8 | ⬜ |
-| **MC-424** | As a **developer**, evidence is **stored where it belongs**, so a photo outlives the phone that took it. | 8 | ⬜ *(split from MC-421 — see below)* |
+| **MC-424** | As a **developer**, evidence is **stored where it belongs**, so a photo outlives the phone that took it. | 8 | ✅ **Done** — blob storage, digest-checked, tested against Azurite. Contract 2.5.0. |
 | **MC-422** | As **P3**, an update I record on site carries **where I was**, so "done" and "done from the car park" are distinguishable. | 5 | ✅ **Done** — contract 2.4.0, 58 browser assertions. Verification against a site boundary is MC-425. |
 | **MC-423** | As **P3**, the app **hides the project when I put the phone down**, so a milestone schedule is not readable by whoever picks it up. | ~~5~~ **3** | ✅ **Done** — the content is replaced, not blurred. The biometric half is MC-426. *(re-scoped from "biometric unlock")* |
 
@@ -1369,6 +1369,54 @@ up an unlocked phone and switches back to Field. The cover lifts when the app re
 foreground, because a tap-to-dismiss gate is pure friction — anyone who can reach the cover can tap
 it. Pretending otherwise would be the fifth instance of a control that looks like protection and is
 not.
+
+### MC-424 — evidence has somewhere to live
+
+**Done. 168 tests green**, twelve of them against **Azurite**, Microsoft's own Blob Storage
+emulator, over the real Blob API. That is the entire reason `EvidenceStore` is an interface: a
+hand-written fake agrees with whatever the code does, and the failures worth catching are the ones
+where this code and Azure's client disagree. It runs as a plain `GenericContainer` rather than a
+Testcontainers module, because 2.x renamed every module and an image plus a port cannot break on a
+rename.
+
+**The bytes are not in Postgres.** Photographs there would put megabytes into every backup and every
+restore of a database whose entire value is a few hundred kilobytes of dates and reasons — and the
+restore drill (Sprint 23) is exactly the thing that would suffer, at the worst possible moment.
+
+**The write order is the reverse of the intuitive one, and it is MC-321's argument again.** Bytes,
+then metadata, then the audit entry, because each step's failure costs a different amount:
+
+| If this succeeds and the next fails | What is left |
+|---|---|
+| Bytes, no row | An unreferenced blob. Costs storage, invisible, sweepable |
+| Row, no bytes | A record pointing at nothing — a viewer renders a broken image, an auditor reads tampering |
+| Audit entry citing evidence that does not exist | **The trail itself is wrong**, in a table whose triggers make it un-editable |
+
+Do the irreversible, most-trusted thing last, when everything it depends on already exists.
+
+**The digest is re-checked on every read**, not merely recorded. An evidence store whose contents can
+change without anybody noticing is not evidence, and that read is the only place that would ever
+find out.
+
+**An SVG is refused by name**, and the database enforces the same list. The failure that prevents is
+not a broken image: an SVG served back from the platform's own origin is **stored XSS dressed as a
+site photograph**. The image response also carries `nosniff` and a content disposition, because it
+is the one route on this API where a mistake is script execution rather than a rendering bug.
+
+### ⚠️ Two things the first CI round found, and one of them was a forgery route
+
+**The catch on the audit insert blamed the reason code for every integrity violation.** That was
+true while `reason_code` was the only foreign key on `milestone_log`. Adding `evidence_id` made a
+dangling id report *"Unknown reason code 'weather'"* — a message that sends somebody to look at
+exactly the wrong thing. **A catch that names one cause is a guess in a confident voice, and it
+stops being true the moment a second cause exists.**
+
+**And the foreign key alone permitted the forging case.** Evidence uploaded against one milestone
+could be cited by an entry on another: attach a genuine photograph of a genuinely flooded excavation
+to a milestone that slipped for a reason nobody wants recorded. Only the service knows which
+milestone an entry is for, so only a domain check can refuse it — the constraint cannot. It was
+found by a test failing for the *wrong reason*, which is the second time this sprint a red test
+pointed somewhere more interesting than where it was aimed.
 
 ### ⚠️ What this sprint cannot prove
 
