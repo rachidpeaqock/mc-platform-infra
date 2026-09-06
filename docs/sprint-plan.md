@@ -1157,7 +1157,7 @@ written and proven as far as a runner can prove them.
 | **MC-123** | As a **developer**, `mc-field` produces an installable Android debug APK, so the app can be run on a real device. | 8 | ✅ **Done** — 4.3 MB, built on a runner, uploaded as an artifact. *(carried from Sprint 3)* |
 | **MC-421** | As **P3 (field crew lead)**, I attach a **photo** to a slip I record, so the reason is evidenced rather than asserted — including with no signal. | 8 | ⬜ |
 | **MC-424** | As a **developer**, evidence is **stored where it belongs**, so a photo outlives the phone that took it. | 8 | ⬜ *(split from MC-421 — see below)* |
-| **MC-422** | As **P3**, an update I record on site carries **where I was**, so "done" and "done from the car park" are distinguishable. | 5 | 🔄 **Server done** — contract 2.4.0. The Field half is next. |
+| **MC-422** | As **P3**, an update I record on site carries **where I was**, so "done" and "done from the car park" are distinguishable. | 5 | ✅ **Done** — contract 2.4.0, 58 browser assertions. Verification against a site boundary is MC-425. |
 | **MC-423** | As **P3**, the app **hides the project when I put the phone down**, so a milestone schedule is not readable by whoever picks it up. | ~~5~~ **3** | ⬜ *(re-scoped from "biometric unlock" — see below)* |
 
 ### MC-123 is closed, and it took two fixes and eight sprints of not looking
@@ -1274,6 +1274,42 @@ Round 3 ended by taking the **generated** spec wholesale rather than patching th
 The baseline had been hand-edited for three releases and springdoc lays the file out differently, so
 99 lines of the diff were key ordering. Now that it byte-matches what CI produces, the next contract
 diff is only the contract — which is the entire point of the check.
+
+### MC-422's Field half — three decisions, and one new story
+
+**Done. 58 browser assertions**, driven with Playwright granting a real fix at Pointe-Sable, so the
+capture path is exercised rather than only its refusal.
+
+**Asked once per update, never watched.** There is no `watchPosition`, and the absence is the
+feature: this platform can answer *"where was this person when they said this was done"* and
+deliberately cannot answer *"where were they at 14:20"*. The server's schema enforces the same limit
+from the other end — there is nowhere else to put a coordinate — so the two halves agree without
+either trusting the other.
+
+**⚠️ It never blocks the write.** Denied, timed out, unavailable, switched off: every outcome
+produces no coordinate and the update is recorded anyway. **A crew lead inside a cold box with no
+sky is exactly who needs to close a milestone**, and an app that refused them because it could not
+find a satellite would be broken in the one place it has to work.
+
+**⚠️ The fix is frozen into the outbox beside `expectedVersion`, and for the same kind of reason.**
+A queued update sent three days later from a site office must say where the person was **when they
+recorded it**, not where the phone is when the signal returns. Re-reading it at flush time would
+have looked like a freshness improvement and would quietly have turned evidence into fiction. That
+is the second time this sprint pair that "refresh it at send time" was the wrong instinct.
+
+Two smaller ones worth keeping:
+
+**The switch is on the form, not in a settings screen.** Recording where somebody is standing is not
+a neutral act, so the control sits where the act is, says what it does, and is remembered. Default
+on — off-by-default means it is never there on the day a claim is argued.
+
+**The success screen names which of four things happened.** A crew lead who believes their location
+was attached, and finds out later that it was not, has lost the one piece of context the claim would
+have leaned on. Silence is not an acceptable answer to "did that work".
+
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-425** | As **P5 (admin)**, a project carries its **site coordinates and a radius**, so an update recorded 40 km away can be told apart from one recorded at the gantry. | 5 | ⬜ **To do — found while building MC-422.** The story was outlined as "GPS site *verification*", and verification is not possible: `project.location` is free text (`'Pointe-Sable Terminal'`) and there is no coordinate anywhere to compare a fix against. What shipped is the half that is real — the position is *recorded*, and a human reading the trail can see it. Comparing it to a boundary needs the boundary, which is planner data nobody has entered and no endpoint accepts. |
 
 ### ⚠️ What this sprint cannot prove
 
