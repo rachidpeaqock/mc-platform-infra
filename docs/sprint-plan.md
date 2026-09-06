@@ -280,7 +280,7 @@ One correction worth recording: `java-service.yml` carried a comment claiming a 
 | **MC-211** | As a **developer**, `ApplicationModules.verify()` and ArchUnit rules fail the build on a boundary violation. | 5 | ✅ **Done** — Modulith 2.0.7 + ArchUnit 1.5.0. Passed on the first CI round, which is the argument for doing it now rather than later. |
 | **MC-212** | As a **developer**, an ArchUnit rule fails the build if `mc-platform-commons` ever contains an `@Entity` or a domain type. | 3 | ✅ **Done, rescoped** — `mc-platform-commons` does not exist, so the rule guards the shared kernel that does. Moves there unchanged when the library is created. |
 | **MC-213** | As a **developer**, CI publishes the OpenAPI spec on every merge and **fails on an unversioned breaking change**. | 5 | ✅ **Done, split** — contract pinned against a committed `api/openapi.json`, spec published as a build artifact by every Java service. Breaking-vs-additive classification deferred to Sprint 9, see below. |
-| **MC-214** | As a **developer**, a schema registry with backward-compatibility enforcement gates every event-schema change. | 5 | ➡️ **Sprint 10** — there are no events yet. Nothing produces to Kafka and no schema exists, so this would gate an empty set. Belongs with the first published event. |
+| **MC-214** | As a **developer**, a schema registry with backward-compatibility enforcement gates every event-schema change. | 5 | ➡️ **Sprint 13**, re-pointed from 10 at the Sprint 9 close — there are no events yet. Nothing produces to Kafka and no schema exists, so this would gate an empty set. The first event comes from `activity-service`, not from Field, so it belongs in the sprint that publishes one. |
 | **MC-215** | As a **developer**, distributed tracing flows browser → gateway → service into App Insights. | 3 | 🔄 **Half done** — App Insights and Log Analytics exist, connection string stored. The instrumentation is not wired: tracing that cannot be observed cannot be verified, so it lands with the first deployment (Sprint 17). |
 
 **This sprint has no demo and no user value, and skipping it is the single most expensive decision available in this plan.** Every rule here is trivial to add now and requires fixing violations *plus* writing tests later.
@@ -930,6 +930,57 @@ which is correct, is tested, and is a state the app now says out loud rather tha
 blank screen. ⚠️ **This belongs in the dev seed only.** A production database gets its owner ids
 from identity-service in Sprint 17; a hardcoded personal `oid` reaching `V900` is the sort of
 fixture fact that survives into an environment nobody meant it to.
+
+## Sprint 11 — Offline 🔄 *(open)*
+
+**Goal:** a crew lead records an update with no signal, walks back into coverage, and it is in the
+project record — exactly once.
+
+**This is the sprint MC-337 was built for.** The idempotency key landed in Sprint 9 and Field has
+been sending one on every write since Sprint 10, so the contract that makes a replay safe already
+exists and is already exercised. What is missing is the queue.
+
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-411** | As **P3 (field crew lead)**, an update I record with no signal is **queued on the phone** and sent when signal returns, so I do not have to remember to redo it. | 8 | ⬜ |
+| **MC-412** | As **P3**, I can see **what is still queued** and what has reached the project, so I know whether to say it is done on the radio. | 5 | ⬜ |
+| **MC-413** | As **P3**, a queued update the server **permanently refuses** tells me and stops retrying, rather than sitting in the queue forever. | 5 | ⬜ |
+| **MC-339** | As **P2 (PM)**, I read one milestone's **delay log and re-baseline history** in the detail drawer. | 5 | ⬜ *(carried from 9)* |
+| **MC-340** | As **P2 (PM)**, I see a milestone's **predecessors**, so the dependency panel says what it is waiting on. | 3 | ⬜ *(carried from 9)* |
+| **MC-341** | As **P1 (sponsor)**, the S-curve is anchored to the **project's own dates**, not a seed constant. | 2 | ⬜ *(carried from 9)* |
+| **MC-345** | As a **developer**, driving a web app against a stub is **one command**, not an afternoon. | 5 | ⬜ *(carried from 9)* |
+
+**33 points**, which is above the ~20 velocity assumption. The four carried stories are small and
+three of them are one backend change; if the sprint has to shed something it sheds MC-413 to 12,
+because an update that is permanently refused is rare and currently *visible* — it fails in the
+sheet with the reason on screen. Nothing is silently lost by not having it.
+
+### The distinction that decides this sprint's design
+
+**A retry is not a queue, and this app already has the first one.** Today a failed write leaves the
+sheet open with the reason on screen and the crew lead presses the button again — which is honest
+and works while they are standing still. The outbox exists for the case that is not that: **the
+phone leaves coverage entirely, the app is closed, the shift ends.** So the queue must survive a
+process death, which is what makes it storage rather than a variable.
+
+Three decisions to make before writing it, recorded here so they are decisions rather than
+accidents:
+
+| Question | Leaning |
+|---|---|
+| Where does the queue live? | **IndexedDB**, not `localStorage`. A queued write is structured, it is read back by key, and `localStorage` is synchronous — which on a phone means blocking the UI thread on every enqueue |
+| What is queued — the request, or the intent? | **The intent** (milestone, new date, reason, note, done-or-not). A serialised HTTP request pins the API shape into the phone's storage, and a queued item can outlive a contract version. `If-Match` in particular *must not* be frozen: it is stale by definition on replay |
+| What happens when a replay 409s? | It is **not** an error to retry. The row moved while the phone was away, and the crew lead has to decide — so a conflicted item leaves the queue and becomes something to look at, with both dates shown |
+
+⚠️ **The `If-Match` question is the trap.** MC-337's note says the idempotency check must run
+before the version check, precisely so a replay of a *successful* write returns the original outcome
+instead of a 409 against a version it already incremented. That protects a replay of something the
+server already has. It does **not** protect a replay of something the server never received, where
+the row has since moved for a real reason — and those two arrive looking identical from the phone.
+Only the server can tell them apart, which is why the key ships with every attempt and the version
+must be re-read at send time rather than frozen at queue time.
+
+---
 
 ---
 
