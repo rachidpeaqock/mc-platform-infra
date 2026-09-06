@@ -945,15 +945,71 @@ exists and is already exercised. What is missing is the queue.
 | **MC-411** | As **P3 (field crew lead)**, an update I record with no signal is **queued on the phone** and sent when signal returns, so I do not have to remember to redo it. | 8 | ⬜ |
 | **MC-412** | As **P3**, I can see **what is still queued** and what has reached the project, so I know whether to say it is done on the radio. | 5 | ⬜ |
 | **MC-413** | As **P3**, a queued update the server **permanently refuses** tells me and stops retrying, rather than sitting in the queue forever. | 5 | ⬜ |
-| **MC-339** | As **P2 (PM)**, I read one milestone's **delay log and re-baseline history** in the detail drawer. | 5 | ⬜ *(carried from 9)* |
-| **MC-340** | As **P2 (PM)**, I see a milestone's **predecessors**, so the dependency panel says what it is waiting on. | 3 | ⬜ *(carried from 9)* |
-| **MC-341** | As **P1 (sponsor)**, the S-curve is anchored to the **project's own dates**, not a seed constant. | 2 | ⬜ *(carried from 9)* |
+| **MC-339** | As **P2 (PM)**, I read one milestone's **delay log and re-baseline history** in the detail drawer. | 5 | ✅ **Done** — `GET /milestones/{id}/history`, two lists, merged for display only. *(carried from 9)* |
+| **MC-340** | As **P2 (PM)**, I see a milestone's **predecessors**, so the dependency panel says what it is waiting on. | 3 | ✅ **Done** — `GET /milestones/{id}/dependencies`, with the link type the drawer had hardcoded. *(carried from 9)* |
+| **MC-341** | As **P1 (sponsor)**, the S-curve is anchored to the **project's own dates**, not a seed constant. | 2 | ✅ **Done** — and it took two goes; see below. *(carried from 9)* |
 | **MC-345** | As a **developer**, driving a web app against a stub is **one command**, not an afternoon. | 5 | ⬜ *(carried from 9)* |
 
 **33 points**, which is above the ~20 velocity assumption. The four carried stories are small and
 three of them are one backend change; if the sprint has to shed something it sheds MC-413 to 12,
 because an update that is permanently refused is rare and currently *visible* — it fails in the
 sheet with the reason on screen. Nothing is silently lost by not having it.
+
+### The three carried stories, closed — and the one that needed a second pass
+
+**One contract change rather than three.** MC-339, MC-340 and MC-341 all wanted something from the
+same service, so they moved together and the API went to **2.3.0** once. 146 tests green.
+
+**MC-339 returns two lists, not one timeline.** A date change and a re-baseline are different acts
+with different tables, roles and meaning, and the two-date model depends on nobody confusing them.
+Merging them server-side would flatten a distinction the server exists to enforce so that a client
+could render one list; the PM screen merges on `at` in three lines and keeps the badge that says
+which is which. Capped at 100 with a `truncated` flag rather than paginated — a milestone with a
+hundred recorded date changes is a data-quality question, not a paging problem.
+
+**The audit join is `LEFT`, and that is not a detail.** A foreign key makes an orphan impossible
+today, but an `INNER JOIN` would mean that if a reason code were ever removed, every audit entry
+referencing it would **vanish from the trail** rather than lose a label. Losing a row's colour is
+recoverable. Losing the row is the one thing that table exists to prevent.
+
+**MC-340's real finding was the hardcoded `FS`.** Successors were already available for free from
+the impact walk's depth-1 rows, so this looked like churn. What a transitive closure cannot carry is
+the *link* — its type and its lag — and the drawer had been printing "FS" beside every successor.
+Right for this fixture, wrong the first time anyone records a start-to-start dependency, and silent
+in both cases. There is now a test that creates the row the fixture does not contain.
+
+### ⚠️ MC-341 was "done" once before it was done
+
+Anchoring the curve's **scale** to `scheduledStart` / `scheduledFinish` was the obvious half, and it
+made the chart look completely correct. `yearMarks` was still a hardcoded
+`[['2025', …], ['2026', …], ['2027', …]]` — and the fixture's years are exactly those three, so
+nothing on screen looked wrong.
+
+On any other project the curve would have been drawn to the right span and then **labelled with
+Meridian's years**. That is worse than the bug it replaced: a chart that is obviously broken gets
+fixed, and a chart that is subtly mislabelled gets read and believed.
+
+**Nothing but running it would have found this.** It was caught by moving the project's dates on the
+stub and watching the axis refuse to move — the assertion that survived three rewrites of my own
+wrong expectations about it. The marks are derived now, and thin to every second or fifth year on a
+long programme rather than overprinting eleven labels across five hundred pixels.
+
+**There is no seed data left in `mc-dashboards`.** `PROJECT` and the `Project` interface are
+deleted. What remains in `core/data.ts` is a preview calculation labelled as an estimate and the
+threshold pair that colours it before a change is submitted.
+
+### The count that keeps being wrong is still mine
+
+**Five of the six browser assertions that failed on a first run this sprint were the test**, not the
+app: a lookahead that matched the variance's `+` instead of a lag suffix, `innerText` on an SVG
+element that has none, an expectation that the axis would show the project's start year when the
+marks are Jan-1 boundaries, and a stub left in the wrong mode by the previous run. The sixth was
+real, and it was `yearMarks`.
+
+That ratio is the argument for the harness, not against it: **the only defect that mattered was
+invisible to the compiler, invisible in review, and invisible on the fixture** — and five wrong
+guesses of mine were the price of finding it. MC-345 is what makes that price a command rather than
+an afternoon.
 
 ### The distinction that decides this sprint's design
 
@@ -1080,16 +1136,18 @@ RAG recompute server-side, reload, and it is still there.
 client at all** — what remains in `data.ts` is a preview calculation labelled as an estimate, a
 fallback threshold pair, and one seed date the S-curve still needs (MC-341).
 
-**Sprints 1–10 complete.** Field reads and writes the same API the dashboards do, signed in as a
-real person, and it needed **one** new seam to get there — `?owner=`. 131 tests on the milestone
-service, 17 on the gateway, all green.
+**Sprints 1–10 complete. Sprint 11 is open**, with the four stories carried out of Sprint 9 now
+three-quarters closed — MC-339, MC-340 and MC-341 are done. **146 tests** on the milestone service,
+17 on the gateway, all green.
+
+**No client on this platform holds seed data any more.** `mc-dashboards` lost the last of it with
+MC-341; `mc-field` lost its own in Sprint 10.
 
 | # | What | Why it is next |
 |---|---|---|
-| 1 | **Sprint 11 — the offline outbox** | The next sprint, and genuinely unblocked: `Idempotency-Key` already goes out on every Field write, so the replay contract exists before the queue that needs it |
-| 2 | MC-339 / MC-340 / MC-341 | Carried into 11. Two read endpoints and two dates — the drawer's dead panels and the S-curve's last seed constant |
-| 3 | MC-345 — the browser harness | Also in 11. Three sprints of ad-hoc harnesses is enough; it also removes the hand-kept `APP_VERSION` that MC-405 left behind |
-| 4 | The dev-seed `oid` swap | One `UPDATE`, above. Needs your Entra object id. Until it runs, a real Field sign-in correctly sees an empty list |
+| 1 | **MC-411/412/413 — the offline outbox** | The heart of Sprint 11, and genuinely unblocked: `Idempotency-Key` already goes out on every Field write, so the replay contract exists before the queue that needs it |
+| 2 | **MC-345 — the browser harness** | Earned its place twice over this sprint: five of six first-run failures were my own wrong expectations, and the sixth was a defect nothing else could have found |
+| 3 | The dev-seed `oid` swap | One `UPDATE`, above. Needs your Entra object id. Until it runs, a real Field sign-in correctly sees an empty list |
 
 ⚠️ **Sprint 11's idempotent replay no longer reaches back into the API — MC-337 landed early.**
 `Idempotency-Key` is on both write endpoints and keyed by `(actor, key)`, so Field's outbox has
