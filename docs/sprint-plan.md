@@ -1618,31 +1618,35 @@ Then Sprint 1 — extracting the design system needs no backend, no Azure, and n
 
 ---
 
-## Where things actually stand · 2026-08-24 (end of Sprint 10)
+## Where things actually stand · 2026-09-06 (end of Sprint 12)
 
-**Sprints 1–9 complete.** 125 tests on the milestone service, all green on CI. The three web apps
-deploy on merge. **The demo runs**: sign in, change a real date with a reason, watch variance and
-RAG recompute server-side, reload, and it is still there.
+**Sprints 0–12 complete. Epic E4 is finished bar shipping.** A crew lead can record an update with
+no signal, photograph the reason, walk back into coverage, and have all of it reach the project
+exactly once — with the position they were standing in when they recorded it, and no duplicate
+however many times the phone retries.
 
-`localStorage` is gone from `mc-dashboards`, and with MC-344 there is **no domain data left on that
-client at all** — what remains in `data.ts` is a preview calculation labelled as an estimate, a
-fallback threshold pair, and one seed date the S-curve still needs (MC-341).
+| | |
+|---|---|
+| `mc-milestone-service` | **168 tests**, twelve against Azurite over the real Blob API. Contract **2.5.0** |
+| `mc-api-gateway` | **17 tests**, including the version gate |
+| `mc-dashboards` | **39 browser assertions**, in CI |
+| `mc-field` | **75 browser assertions**, in CI, plus an installable Android APK |
 
-**Sprints 1–11 complete.** A crew lead can record an update with no signal, walk back into
-coverage, and have it reach the project exactly once. **146 tests** on the milestone service, 17 on
-the gateway, and **94 browser assertions** across the two front ends, all green on CI.
+**No client on this platform holds domain data any more.** `mc-dashboards` lost the last of its seed
+with MC-341; `mc-field` lost its own in Sprint 10; the reason catalogue is served (MC-344) and even
+the "this reason needs a note" rule is a database column rather than a string literal in two
+languages.
 
-**No client on this platform holds seed data any more.** `mc-dashboards` lost the last of it with
-MC-341; `mc-field` lost its own in Sprint 10.
-
-| # | What | Why it is next |
+| # | What is next | Why |
 |---|---|---|
-| 1 | **Sprint 12 — native capabilities** | Camera for photo evidence on a slip, GPS site verification, biometric unlock. Writable and unit-testable against Capacitor's web fallbacks; what waits for Apple enrolment is running them on hardware |
-| 2 | The dev-seed `oid` swap | One `UPDATE`, above. Needs your Entra object id. Until it runs, a real Field sign-in correctly sees an empty list |
-| 3 | ⚠️ **Sprint 12's honest limit** | The web CI compiles Capacitor code and exercises its logic; **nothing exercises a plugin until real hardware**. `npm run verify` does not change that, and should not be read as if it does |
+| 1 | **Sprint 13 — the activity feed** | Epic E5 opens: `activity-service` with its own database, a Kafka consumer, and MC-342's notification bell, which has been **explicitly empty since Sprint 9** and must not be a surprise. MC-214's schema registry lands here too, finally with a real event to gate |
+| 2 | **Install the APK on a phone** | The first thing in this project that can be. Everything in Sprint 12 is written against Capacitor's web fallbacks, and one real device run will find things nothing in CI can |
+| 3 | The dev-seed `oid` swap | One `UPDATE`. Needs your Entra object id; until it runs a real Field sign-in correctly sees an empty list |
 
-⚠️ **Sprint 11's idempotent replay no longer reaches back into the API — MC-337 landed early.**
-`Idempotency-Key` is on both write endpoints and keyed by `(actor, key)`, so Field's outbox has
-somewhere to put a replay before the outbox exists. **Field must send one from its first write**,
-not from the sprint that adds queuing: an update retried by hand on a bad connection is the same
-duplicate a queue would have caused.
+⚠️ **The standing risk, unchanged and worth restating at the end of the epic that created it.**
+Camera, GPS and the privacy cover are all exercised in a desktop Chromium against web fallbacks.
+That proves the logic, the queue, the ordering and the refusal paths, and proves **nothing behind a
+plugin**. Native-only defects have been accumulating undetected since Sprint 3 by deliberate choice,
+and the first device run will find more than it would have if devices had been in the loop
+throughout. That was a real cost, knowingly taken to avoid blocking on an enrolment queue — and it
+comes due the day somebody installs that APK.
