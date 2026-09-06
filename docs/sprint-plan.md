@@ -1333,6 +1333,33 @@ time where it matters and still works in the web build CI drives.
 **The cover sits ahead of the upgrade blocker**, which reads like an ordering detail and is not: a
 refused build's schedule is exactly as confidential as a working one's.
 
+### ⚠️ Two listeners for one concept, and the platform's own shim fought mine
+
+The cover would not go up, and the reason is the most useful thing this story produced.
+
+`PrivacyScreen` registers **two** listeners, because iOS and the browser signal "backgrounded"
+differently: Capacitor's `appStateChange`, and the DOM's `visibilitychange`. In a browser **both
+fire for one background** — Capacitor's web shim for the App plugin is itself listening to
+`visibilitychange` — and they were reading *different properties* to decide what it meant:
+
+| | reads |
+|---|---|
+| `PrivacyScreen` | `document.visibilityState === 'hidden'` |
+| Capacitor's web shim | `document.hidden` |
+
+On a real device those two always agree, so nothing about this is visible on hardware. In the
+harness, which shadowed only `visibilityState`, **the shim fired second, read a `hidden` nobody had
+changed, and set the cover straight back down.** The cover went up and came down within one tick.
+
+The fix is to read the one property both paths agree on — `document.hidden` — which removes the
+disagreement rather than ordering around it. The harness now shadows both, because a browser
+reproducing a background has to reproduce all of it.
+
+**Worth generalising:** two listeners writing one signal from two platform APIs is a race whenever
+the APIs can disagree, and "they agree on a real device" is not a defence — it only means the
+disagreement will surface somewhere nobody is looking. This was found by driving it, and would not
+have been found by reading it.
+
 | ID | Story | Pts | Status |
 |---|---|---|---|
 | **MC-426** | As **P3**, the app **asks for a biometric before revealing the schedule**, so somebody holding my unlocked phone still cannot read it. | 5 | ⬜ **To do — split out of MC-423, and deliberately parked with Shipping.** Two things make it premature. It needs a **third-party plugin** — there is no first-party Capacitor biometric — which is real supply-chain weight for a three-point story. And until the token is in Keychain/Keystore it protects the *screen* while the credential sits in webview storage beside it. It becomes worth doing on the day secure storage lands, and it should land in the same change. |
