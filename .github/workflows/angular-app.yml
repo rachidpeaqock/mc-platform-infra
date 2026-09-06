@@ -44,6 +44,13 @@ on:
         required: false
         type: boolean
         default: true
+      verify:
+        description: >
+          Run `npm run verify` - build the stub entry point and drive the
+          app in a real browser against a stub of the API (MC-345).
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -84,6 +91,20 @@ jobs:
             exit 1
           fi
           echo "OK: tokens present in $DIST"
+
+      # MC-345. A green build means "this compiles"; three sprints running,
+      # the defects that mattered were things only a rendered page showed -
+      # a search box that never filtered, a chart labelled with the wrong
+      # years. This drives the real components against a stub of the real
+      # contract.
+      #
+      # No browser download: the runner image already has Google Chrome and
+      # verify/harness.mjs prefers it under CI. `playwright` proper would
+      # pull ~150 MB per install, per repo, for a check that runs in
+      # seconds.
+      - name: Drive the app against a stub of the API
+        if: inputs.verify
+        run: npm run verify
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
