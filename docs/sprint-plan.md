@@ -1145,6 +1145,105 @@ that is why the idempotency key ships with every attempt rather than only with r
 
 ---
 
+## Sprint 12 — Native capabilities 🔄 *(open)*
+
+**Goal:** the three things a phone can do that a browser cannot — evidence, place, and privacy —
+written and proven as far as a runner can prove them.
+
+**Carried in from Sprint 11:** nothing. Sprint 11 closed at 33 of 33.
+
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-123** | As a **developer**, `mc-field` produces an installable Android debug APK, so the app can be run on a real device. | 8 | ✅ **Done** — 4.3 MB, built on a runner, uploaded as an artifact. *(carried from Sprint 3)* |
+| **MC-421** | As **P3 (field crew lead)**, I attach a **photo** to a slip I record, so the reason is evidenced rather than asserted — including with no signal. | 8 | ⬜ |
+| **MC-424** | As a **developer**, evidence is **stored where it belongs**, so a photo outlives the phone that took it. | 8 | ⬜ *(split from MC-421 — see below)* |
+| **MC-422** | As **P3**, an update I record on site carries **where I was**, so "done" and "done from the car park" are distinguishable. | 5 | ⬜ |
+| **MC-423** | As **P3**, the app **hides the project when I put the phone down**, so a milestone schedule is not readable by whoever picks it up. | ~~5~~ **3** | ⬜ *(re-scoped from "biometric unlock" — see below)* |
+
+### MC-123 is closed, and it took two fixes and eight sprints of not looking
+
+**A 4.3 MB installable debug APK**, built on a runner in 2m 28s, uploaded as a CI artifact and
+retained for 14 days. The story was carried out of Sprint 3 and had sat at "environment-blocked"
+ever since.
+
+**Neither of the two things actually wrong with it was the thing the status described.**
+
+| What broke | Why it was invisible |
+|---|---|
+| The Capacitor 8 CLI **refuses to run below Node 22**, and the shared Angular pipeline pins 20 | It fails *after* the Angular build succeeds, so the log reads as a green web build followed by a fatal — which scans as an Android problem and is not one |
+| **`./gradlew` had no executable bit.** It was committed from a Windows checkout, where git does not track the mode, so every Linux clone got a 644 script | ⚠️ **The first blocker was hiding it.** Nobody could run `gradlew` locally to discover that they could not run `gradlew` |
+
+The wrapper's mode is fixed **in the index** (`git update-index --chmod=+x`) rather than with a
+`chmod` step in the workflow: the mode is a property of the file, and a workflow fix would leave the
+next person cloning this on a Mac with the same broken wrapper.
+
+**The lesson is about the words, not the tooling.** The status said "environment-blocked", which
+scans as *blocked*. It meant *blocked on this laptop* — and the laptop stopped mattering in Sprint 4,
+when the Java build moved to Actions for exactly the same TLS-interception reason. Eight sprints of
+a story nobody re-read because its status sounded final. **"Blocked by TLS interception on the
+development machine" would have been re-read the moment the development machine stopped being where
+things were built.**
+
+⚠️ **Still a debug APK, not a shippable one.** It carries the Android debug key; Play needs a real
+upload key, iOS needs enrolment, and both are the Shipping row of this epic. What changed is that
+the Android half of Field is now *installable on a device by hand*, which is the first time any of
+this code can be run on a phone at all.
+
+### 🔀 MC-423 was "biometric unlock", and that would have been a lie
+
+The story as outlined was **biometric unlock**. Writing down what it would actually protect is what
+killed it:
+
+> The Entra access token lives in `sessionStorage` inside the webview. A biometric gate stops
+> somebody **opening the app**. It does not stop anybody reading the token off the device, because
+> secure token storage — Keychain and Keystore — is explicitly in Epic E4's **"later · Shipping"**
+> row and does not exist.
+
+So "biometric unlock" would be **a lock on a door in a glass wall**: it looks like a security
+control, it would be described as one in a release note, and the thing it claims to protect is
+sitting in the open beside it. This codebase has now hit that shape four times — `REVOKE` that
+enforced nothing, Ionicons that resolved by name and rendered blank, a `426` whose CORS headers
+never arrived, and now this.
+
+**Re-scoped to what it can honestly be: a privacy screen.** It hides the schedule when the app is
+backgrounded and asks for a biometric to reveal it again, and the UI says *that* rather than
+implying the data is protected. It **becomes** a security control the day the token moves to
+Keystore/Keychain, and that day is written into the Shipping row rather than assumed.
+
+### The decision MC-421 needs: where evidence lives, and in what order
+
+There is **no storage account** in `bicep/` — the only thing there is `front-door.bicep`. A photo
+has nowhere server-side to go, which is why the story split:
+
+| | |
+|---|---|
+| **MC-421** | Capture, compress, and **queue** — including the offline path, since a photo taken with no signal has to survive in the outbox beside the update it evidences |
+| **MC-424** | The place it is stored, and the endpoint that puts it there |
+
+**⚠️ The ordering is the interesting part, and it is the same argument as MC-321.** The audit row and
+the photo live in different stores and cannot commit together, so one of them goes first:
+
+- **Photo first, then the audit row that references it.** If the write then fails, there is an
+  orphan blob — cheap, sweepable, invisible to a user.
+- **Audit row first.** If the upload then fails, the trail contains an entry citing evidence that
+  does not exist — in a table whose triggers make it un-editable.
+
+The trail is what a delay claim is argued from, so an entry pointing at nothing is the expensive
+failure and the blob is the cheap one. **Do the thing whose failure is cheapest to discover last** —
+which is precisely why MC-321 inserts the audit row *before* moving the date.
+
+### ⚠️ What this sprint cannot prove
+
+Everything here is written against **Capacitor's web fallbacks** and driven by `npm run verify` in a
+desktop Chromium. That exercises the logic, the queue, the permission-denied path and the UI — and
+**nothing behind a plugin**. A camera that never opens on a real phone, a GPS that returns a
+cached fix, a biometric prompt that behaves differently on a locked device: none of those are
+reachable from here.
+
+The APK job above narrows this for Android specifically — the code now at least *compiles into an
+installable artifact* — but installing it on a device is still a thing a person does by hand. That
+gap is the standing risk in Epic E4, and it is not closed by this sprint.
+
 ---
 
 # Epic E5 — Activity and real-time · Sprints 13–14
