@@ -1145,7 +1145,7 @@ that is why the idempotency key ships with every attempt rather than only with r
 
 ---
 
-## Sprint 12 — Native capabilities 🔄 *(open)*
+## Sprint 12 — Native capabilities ✅ **COMPLETE**
 
 **Goal:** the three things a phone can do that a browser cannot — evidence, place, and privacy —
 written and proven as far as a runner can prove them.
@@ -1155,7 +1155,7 @@ written and proven as far as a runner can prove them.
 | ID | Story | Pts | Status |
 |---|---|---|---|
 | **MC-123** | As a **developer**, `mc-field` produces an installable Android debug APK, so the app can be run on a real device. | 8 | ✅ **Done** — 4.3 MB, built on a runner, uploaded as an artifact. *(carried from Sprint 3)* |
-| **MC-421** | As **P3 (field crew lead)**, I attach a **photo** to a slip I record, so the reason is evidenced rather than asserted — including with no signal. | 8 | ⬜ |
+| **MC-421** | As **P3 (field crew lead)**, I attach a **photo** to a slip I record, so the reason is evidenced rather than asserted — including with no signal. | 8 | ✅ **Done** — uploaded before the write, queued with it when there is no signal. 75 browser assertions. |
 | **MC-424** | As a **developer**, evidence is **stored where it belongs**, so a photo outlives the phone that took it. | 8 | ✅ **Done** — blob storage, digest-checked, tested against Azurite. Contract 2.5.0. |
 | **MC-422** | As **P3**, an update I record on site carries **where I was**, so "done" and "done from the car park" are distinguishable. | 5 | ✅ **Done** — contract 2.4.0, 58 browser assertions. Verification against a site boundary is MC-425. |
 | **MC-423** | As **P3**, the app **hides the project when I put the phone down**, so a milestone schedule is not readable by whoever picks it up. | ~~5~~ **3** | ✅ **Done** — the content is replaced, not blurred. The biometric half is MC-426. *(re-scoped from "biometric unlock")* |
@@ -1417,6 +1417,106 @@ to a milestone that slipped for a reason nobody wants recorded. Only the service
 milestone an entry is for, so only a domain check can refuse it — the constraint cannot. It was
 found by a test failing for the *wrong reason*, which is the second time this sprint a red test
 pointed somewhere more interesting than where it was aimed.
+
+### MC-421 — the photograph, and the ordering it inherits
+
+**The client half of evidence.** A photograph is taken with the reason it supports, compressed on the
+device, uploaded **before** the update that cites it, and — if there is no signal — queued *with*
+the update rather than dropped.
+
+**⚠️ 1600px at 70% quality, and that is not a nicety.** A modern phone produces 4–12 MB per frame:
+a photo a crew lead cannot send on site wifi, cannot queue several of, and which the server refuses
+over 8 MB anyway. The compression is what makes the feature work on the connection it was built for.
+1600px still resolves a flooded excavation, a cracked weld or a delivery note; it does not resolve a
+serial number, and if that turns out to matter the number goes up rather than the limit coming off.
+
+**The camera, not the gallery.** Evidence for a delay claim should be a photograph taken now, and
+offering the library invites a picture of something from last month.
+
+**⚠️ The bytes are fetched into a `Blob` immediately.** Capacitor hands back a `webPath` pointing at
+a temporary file the OS is free to clean up — which for a photo that may sit in an offline queue for
+days is a guarantee of losing it. IndexedDB stores a `Blob` natively; base64 in `localStorage` would
+be a third larger, synchronous, and capped low enough that one site photograph fills it.
+
+**The evidence id is written back into the queue the moment an upload succeeds.** Without that, a
+queued update whose photograph landed and whose write then failed would re-upload on every flush —
+**one orphan blob per retry, accumulating fastest for exactly the phone with the worst connection.**
+
+### What the harness can and cannot prove here
+
+Capacitor's camera cannot open in a desktop browser, so `main.stub.ts` swaps **one call** for a
+deterministic PNG. Everything downstream is the shipped code: the `Blob`, the preview, the upload,
+the queue, the survival across a reload, and the upload-before-write ordering on both the first
+attempt and the replay.
+
+That seam is the same one the harness already used for authentication, and it sits in the stub entry
+point which is never deployed. **What it cannot prove is that a phone's camera opens at all** —
+which is Epic E4's standing limit rather than a gap in the harness, and the reason the APK now
+matters: the code is at least installable on a device by hand.
+
+### ⚠️ The harness was testing the wrong process
+
+The camera assertions failed with `No stub for /api/v1/milestones/d1/evidence` — a route that
+plainly existed in `verify/stub.mjs`. It existed in the *file*; it did not exist in the *process
+answering*, which was a stub left running by an earlier debugging session.
+
+Node's default made it invisible: the new stub emitted `EADDRINUSE`, died quietly, and the old one
+carried on serving. The drive script connected, got sensible answers to everything the old stub knew
+about, and failed only on the one route that was new.
+
+`run.mjs` now refuses to start on a taken port and says why. **A test harness that silently tests
+a different build than the one you just made is worse than one that does not start** — it produces
+failures that point at the code you just wrote, which is the last place the problem is.
+
+## Sprint 12 close — native capabilities ✅
+
+**32 of 32 points**, and the sprint's shape was set by two stories refusing to be what their outlines
+said. MC-423 was "biometric unlock" and became a privacy screen, because a biometric would have
+guarded a screen while the token sat in webview storage beside it. MC-422 was "GPS site
+verification" and became "record where the update was taken", because verification needs a site
+boundary that nothing in this platform has.
+
+**Neither was scope being cut.** In both cases the outline described something that could not
+honestly be built yet, and the half that *could* be built is genuinely useful — a task-switcher that
+no longer leaks a client's schedule, and a trail that can tell "done" from "done from the car park".
+What was left out is written down as MC-425 and MC-426 with the reason, rather than quietly shipped
+as a thinner version wearing the original name.
+
+### The pattern this sprint kept hitting
+
+Four separate times, a red test or a failed build pointed somewhere more interesting than where it
+was aimed:
+
+| Aimed at | Actually found |
+|---|---|
+| The APK not building | Two causes, neither the one the status had claimed for eight sprints — and one hidden *behind* the other |
+| A dangling evidence id | An over-broad catch blaming the reason code for every integrity violation |
+| Fixing that catch | **A forgery route**: evidence uploaded against one milestone could be cited by an entry on another |
+| The privacy cover not staying up | Two listeners reading different properties for one concept, with the platform's own shim undoing the app |
+
+⚠️ **And the harness made the same class of mistake I had just written up.** `run.mjs` announced
+"is the port already in use?" when the stub had died of a syntax error — one cause out of several,
+stated confidently, sending the search to exactly the wrong place. It reports the stub's exit code
+now. **A diagnostic that guesses is a diagnostic that lies eventually**, and it does not matter
+whether it is a catch block or an error message.
+
+### Carried out of Sprint 12
+
+| Item | To | Why |
+|---|---|---|
+| **MC-425** site coordinates and radius | **Sprint 15** | Verification needs a boundary, and a boundary is planner data. It belongs with the templates service, where project structure is created rather than assumed |
+| **MC-426** biometric reveal | **later · Shipping** | It needs a third-party plugin and it only becomes a security control once the token is in Keychain/Keystore. It should land in the same change as secure storage, not before it |
+| **MC-215** tracing instrumentation | **Sprint 17** | Unchanged: tracing that cannot be observed cannot be verified |
+
+**Backend: 168 tests green**, twelve of them against Azurite over the real Blob API. **Field: 75
+browser assertions**, plus an installable APK for the first time in the project's life.
+
+⚠️ **What none of it proves.** Camera, GPS and the privacy cover are all written against Capacitor's
+web fallbacks and driven in a desktop Chromium. That exercises the logic, the queue, the ordering,
+the permission-denied paths and the UI — **and nothing behind a plugin**. A camera that never opens
+on a real phone, a GPS that returns a cached fix, a cover that arrives after the snapshot: none of
+those are reachable from here. The APK narrows it for Android by making the code installable by
+hand; it does not close it, and Epic E4's standing risk is unchanged.
 
 ### ⚠️ What this sprint cannot prove
 
