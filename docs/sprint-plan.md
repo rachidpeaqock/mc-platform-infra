@@ -948,7 +948,7 @@ exists and is already exercised. What is missing is the queue.
 | **MC-339** | As **P2 (PM)**, I read one milestone's **delay log and re-baseline history** in the detail drawer. | 5 | ✅ **Done** — `GET /milestones/{id}/history`, two lists, merged for display only. *(carried from 9)* |
 | **MC-340** | As **P2 (PM)**, I see a milestone's **predecessors**, so the dependency panel says what it is waiting on. | 3 | ✅ **Done** — `GET /milestones/{id}/dependencies`, with the link type the drawer had hardcoded. *(carried from 9)* |
 | **MC-341** | As **P1 (sponsor)**, the S-curve is anchored to the **project's own dates**, not a seed constant. | 2 | ✅ **Done** — and it took two goes; see below. *(carried from 9)* |
-| **MC-345** | As a **developer**, driving a web app against a stub is **one command**, not an afternoon. | 5 | ⬜ *(carried from 9)* |
+| **MC-345** | As a **developer**, driving a web app against a stub is **one command**, not an afternoon. | 5 | ✅ **Done** — `npm run verify`, and it runs in CI. *(carried from 9)* |
 
 **33 points**, which is above the ~20 velocity assumption. The four carried stories are small and
 three of them are one backend change; if the sprint has to shed something it sheds MC-413 to 12,
@@ -1010,6 +1010,50 @@ That ratio is the argument for the harness, not against it: **the only defect th
 invisible to the compiler, invisible in review, and invisible on the fixture** — and five wrong
 guesses of mine were the price of finding it. MC-345 is what makes that price a command rather than
 an afternoon.
+
+### MC-345 — the harness, and the debt it collected on the way
+
+**`npm run verify`.** It checks the version, builds a stub entry point, starts a stub of the real
+contract, drives the app in a browser and shuts everything down. **39 assertions in
+`mc-dashboards`, 37 in `mc-field`**, and both now run on every push — verified by reading them out
+of a GitHub runner's log rather than by trusting the workflow file.
+
+**The blocker was never the driver.** It was that both apps bootstrap MSAL in `main.ts`, so driving
+one meant hand-editing that file to swap a provider, building, and remembering to put it back —
+done three times across Sprints 9 to 11, and every time it found something the compiler could not
+see. `app.config.ts` now holds everything *except* where a token comes from, and `main.stub.ts` is
+the same app with `provideDevAccessToken()`. **The seam that made this a five-line change was built
+in Sprint 9 for exactly this reason**, which is the second time `ACCESS_TOKEN` has paid for itself
+in a place it was not designed for.
+
+Three decisions worth keeping:
+
+**The stub is shaped from the contract, not from the client.** It serves a reason category no build
+ever hardcoded, a start-to-start dependency with lag, and project dates that are not the fixture's.
+Every one of those corresponds to something a client used to assume; a stub mirroring the client
+would only prove the client agrees with itself.
+
+**`harness.mjs` is duplicated, deliberately.** Sixty lines in two repos rather than
+`@rachidpeaqock/verify` — a package means a release cycle and a version bump every time an
+assertion helper changes, which is the lockstep coupling MC-212's fitness function exists to
+prevent one tier down. The platform has now made this argument three times: for `bizDays`, for the
+wire types, and here.
+
+**No browser is downloaded.** `playwright-core` plus whatever Chromium the machine already has —
+Edge on this laptop, Chrome on a runner. The full `playwright` package would pull ~150 MB per
+install, per repo, for a check that runs in seconds.
+
+### The debt MC-405 left, paid
+
+`mc-field`'s `APP_VERSION` was kept in step with `package.json` **by hand**, and MC-405 recorded
+that as the version gate's one silent failure mode: a build claiming a version it is not sails
+through the check that exists to stop it — app working, CI green, and nothing anywhere saying so.
+
+`verify/check-version.mjs` fails the build when they disagree. **It was tested by making it fail**,
+not by assuming it would, which is the same discipline as MC-322's trigger and MC-203's denial
+tests: the usual way a guard fails is by never firing.
+
+---
 
 ### The distinction that decides this sprint's design
 
@@ -1136,18 +1180,17 @@ RAG recompute server-side, reload, and it is still there.
 client at all** — what remains in `data.ts` is a preview calculation labelled as an estimate, a
 fallback threshold pair, and one seed date the S-curve still needs (MC-341).
 
-**Sprints 1–10 complete. Sprint 11 is open**, with the four stories carried out of Sprint 9 now
-three-quarters closed — MC-339, MC-340 and MC-341 are done. **146 tests** on the milestone service,
-17 on the gateway, all green.
+**Sprints 1–10 complete. Sprint 11 is open**, and **all four stories carried out of Sprint 9 are
+closed** — MC-339, MC-340, MC-341 and MC-345. **146 tests** on the milestone service, 17 on the
+gateway, and **76 browser assertions** across the two front ends, all green on CI.
 
 **No client on this platform holds seed data any more.** `mc-dashboards` lost the last of it with
 MC-341; `mc-field` lost its own in Sprint 10.
 
 | # | What | Why it is next |
 |---|---|---|
-| 1 | **MC-411/412/413 — the offline outbox** | The heart of Sprint 11, and genuinely unblocked: `Idempotency-Key` already goes out on every Field write, so the replay contract exists before the queue that needs it |
-| 2 | **MC-345 — the browser harness** | Earned its place twice over this sprint: five of six first-run failures were my own wrong expectations, and the sixth was a defect nothing else could have found |
-| 3 | The dev-seed `oid` swap | One `UPDATE`, above. Needs your Entra object id. Until it runs, a real Field sign-in correctly sees an empty list |
+| 1 | **MC-411/412/413 — the offline outbox** | All that is left in Sprint 11, and genuinely unblocked: `Idempotency-Key` already goes out on every Field write, so the replay contract exists before the queue that needs it — and `npm run verify` can now drive the queued states as they are built |
+| 2 | The dev-seed `oid` swap | One `UPDATE`, above. Needs your Entra object id. Until it runs, a real Field sign-in correctly sees an empty list |
 
 ⚠️ **Sprint 11's idempotent replay no longer reaches back into the API — MC-337 landed early.**
 `Idempotency-Key` is on both write endpoints and keyed by `(actor, key)`, so Field's outbox has
