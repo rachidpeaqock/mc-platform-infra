@@ -931,7 +931,7 @@ blank screen. ⚠️ **This belongs in the dev seed only.** A production databas
 from identity-service in Sprint 17; a hardcoded personal `oid` reaching `V900` is the sort of
 fixture fact that survives into an environment nobody meant it to.
 
-## Sprint 11 — Offline 🔄 *(open)*
+## Sprint 11 — Offline ✅ **COMPLETE**
 
 **Goal:** a crew lead records an update with no signal, walks back into coverage, and it is in the
 project record — exactly once.
@@ -942,9 +942,9 @@ exists and is already exercised. What is missing is the queue.
 
 | ID | Story | Pts | Status |
 |---|---|---|---|
-| **MC-411** | As **P3 (field crew lead)**, an update I record with no signal is **queued on the phone** and sent when signal returns, so I do not have to remember to redo it. | 8 | ⬜ |
-| **MC-412** | As **P3**, I can see **what is still queued** and what has reached the project, so I know whether to say it is done on the radio. | 5 | ⬜ |
-| **MC-413** | As **P3**, a queued update the server **permanently refuses** tells me and stops retrying, rather than sitting in the queue forever. | 5 | ⬜ |
+| **MC-411** | As **P3 (field crew lead)**, an update I record with no signal is **queued on the phone** and sent when signal returns, so I do not have to remember to redo it. | 8 | ✅ **Done** — IndexedDB, and it survives the app being closed. |
+| **MC-412** | As **P3**, I can see **what is still queued** and what has reached the project, so I know whether to say it is done on the radio. | 5 | ✅ **Done** — a header pill, a per-card marker, and a panel with "try sending now". |
+| **MC-413** | As **P3**, a queued update the server **permanently refuses** tells me and stops retrying, rather than sitting in the queue forever. | 5 | ✅ **Done** — a refusal leaves the queue and is shown, with the note attached. |
 | **MC-339** | As **P2 (PM)**, I read one milestone's **delay log and re-baseline history** in the detail drawer. | 5 | ✅ **Done** — `GET /milestones/{id}/history`, two lists, merged for display only. *(carried from 9)* |
 | **MC-340** | As **P2 (PM)**, I see a milestone's **predecessors**, so the dependency panel says what it is waiting on. | 3 | ✅ **Done** — `GET /milestones/{id}/dependencies`, with the link type the drawer had hardcoded. *(carried from 9)* |
 | **MC-341** | As **P1 (sponsor)**, the S-curve is anchored to the **project's own dates**, not a seed constant. | 2 | ✅ **Done** — and it took two goes; see below. *(carried from 9)* |
@@ -1069,16 +1069,79 @@ accidents:
 | Question | Leaning |
 |---|---|
 | Where does the queue live? | **IndexedDB**, not `localStorage`. A queued write is structured, it is read back by key, and `localStorage` is synchronous — which on a phone means blocking the UI thread on every enqueue |
-| What is queued — the request, or the intent? | **The intent** (milestone, new date, reason, note, done-or-not). A serialised HTTP request pins the API shape into the phone's storage, and a queued item can outlive a contract version. `If-Match` in particular *must not* be frozen: it is stale by definition on replay |
+| What is queued — the request, or the intent? | **The intent** (milestone, new date, reason, note, done-or-not). A serialised HTTP request pins the API shape into the phone's storage, and a queued item can outlive a contract version. ~~`If-Match` in particular *must not* be frozen: it is stale by definition on replay~~ — **wrong, corrected below** |
 | What happens when a replay 409s? | It is **not** an error to retry. The row moved while the phone was away, and the crew lead has to decide — so a conflicted item leaves the queue and becomes something to look at, with both dates shown |
 
-⚠️ **The `If-Match` question is the trap.** MC-337's note says the idempotency check must run
-before the version check, precisely so a replay of a *successful* write returns the original outcome
-instead of a 409 against a version it already incremented. That protects a replay of something the
-server already has. It does **not** protect a replay of something the server never received, where
-the row has since moved for a real reason — and those two arrive looking identical from the phone.
-Only the server can tell them apart, which is why the key ships with every attempt and the version
-must be re-read at send time rather than frozen at queue time.
+## Sprint 11 close — the outbox ✅
+
+**33 of 33 points. Sprint 11 is complete**, and the sprint's most valuable output was a correction
+rather than a feature — see below.
+
+**A retry is not a queue, and this app already had the first one.** A failed write left the sheet
+open with the reason on screen and the crew lead pressed the button again, which is honest and works
+while they are standing still. The outbox exists for the case that is not that: **the phone leaves
+coverage, the app is closed, the shift ends.** That is why it is IndexedDB rather than a field, and
+why the test that matters most is the one that reloads the page and asserts the queue is still
+there.
+
+### What does and does not get queued
+
+The distinction the whole story rests on, and three of the four answers are "no":
+
+| Outcome | Queued? | Why |
+|---|---|---|
+| No signal, 5xx, 408, 429 | **Yes** | The server never heard it. This is work the phone owes the project |
+| A refusal (422, 403) | **No** | It will not become an acceptance. It stays on the form, where the person who can fix it is standing |
+| A lost race (409) | **No** | Replaying it later applies a decision the crew lead never got to reconsider |
+| Upgrade required (426) | **No** | Queueing against a build the platform has refused fills a queue that can never drain, on an app the user is being told to replace |
+
+**Unknown failures are treated as permanent**, which is the uncomfortable direction and the right
+one: a queue that retries forever hides the problem, while one that surfaces it too eagerly puts a
+wrong answer in front of somebody who can act on it.
+
+### One pending update per milestone, and that is correctness
+
+A crew lead who moves a date to the 20th and then to the 27th while offline **never had a project in
+which the 20th was true**. Replaying both would invent an intermediate slip that reached nobody and
+write it into a trail the database will not let anyone edit — and the second would 409 against the
+first anyway, since both were composed against the same row version. The later intent replaces the
+earlier one.
+
+### Two smaller things worth keeping
+
+**The success screen now has two states.** "The project has it" and "this phone has it and the
+project does not yet" are things a crew lead acts on differently — one of them means you can say it
+on the radio. The old screen said the first for both, because a fire-and-forget write could not tell
+them apart.
+
+**The IndexedDB writes await the transaction, not the request.** `request.onsuccess` fires while the
+transaction is still open, so resolving there tells the caller an update is durably queued a moment
+before it is. If the tab closes in that window — on a phone, exactly when it happens — the write is
+gone and the app has already said it was saved.
+
+**55 browser assertions**, up from 37, first run green.
+
+### ⚠️ The `If-Match` note above was wrong, and it would have caused a lost update
+
+**Written at sprint open, corrected while building it.** The claim was that the row version "must be
+re-read at send time rather than frozen at queue time". Writing the three replay cases out is what
+showed it is exactly backwards:
+
+| On replay | With the version **frozen** | With it **re-read** |
+|---|---|---|
+| **1. The write arrived; the response was lost.** Server has it, row is at V+1 | The key is already spent, the idempotency check runs first (MC-337), the original outcome comes back. The stale `If-Match` never matters | Same — the key short-circuits before the version is looked at |
+| **2. The write never arrived, and somebody else moved the row.** | 409. The crew lead is told their update was composed against a project that has since changed — **which is the correct answer** | It **silently overwrites** the other person's change. A lost update, in the one case optimistic concurrency exists to prevent |
+| **3. The write never arrived, and nothing moved.** | It applies | It applies |
+
+So freezing is right in all three, and the note that said otherwise would have quietly turned the
+only interesting case into the failure `If-Match` was added for in Sprint 9. **It is struck through
+rather than deleted** — a confidently-worded wrong note in shared infrastructure is worse than no
+note, and this document has said so before about a comment in `java-service.yml` that sat there for
+two sprints looking like a finding.
+
+What survives from it is the part that was right: **a replay of a lost-response write and a replay
+of a never-received one look identical from the phone**, only the server can tell them apart, and
+that is why the idempotency key ships with every attempt rather than only with retries.
 
 ---
 
@@ -1180,17 +1243,18 @@ RAG recompute server-side, reload, and it is still there.
 client at all** — what remains in `data.ts` is a preview calculation labelled as an estimate, a
 fallback threshold pair, and one seed date the S-curve still needs (MC-341).
 
-**Sprints 1–10 complete. Sprint 11 is open**, and **all four stories carried out of Sprint 9 are
-closed** — MC-339, MC-340, MC-341 and MC-345. **146 tests** on the milestone service, 17 on the
-gateway, and **76 browser assertions** across the two front ends, all green on CI.
+**Sprints 1–11 complete.** A crew lead can record an update with no signal, walk back into
+coverage, and have it reach the project exactly once. **146 tests** on the milestone service, 17 on
+the gateway, and **94 browser assertions** across the two front ends, all green on CI.
 
 **No client on this platform holds seed data any more.** `mc-dashboards` lost the last of it with
 MC-341; `mc-field` lost its own in Sprint 10.
 
 | # | What | Why it is next |
 |---|---|---|
-| 1 | **MC-411/412/413 — the offline outbox** | All that is left in Sprint 11, and genuinely unblocked: `Idempotency-Key` already goes out on every Field write, so the replay contract exists before the queue that needs it — and `npm run verify` can now drive the queued states as they are built |
+| 1 | **Sprint 12 — native capabilities** | Camera for photo evidence on a slip, GPS site verification, biometric unlock. Writable and unit-testable against Capacitor's web fallbacks; what waits for Apple enrolment is running them on hardware |
 | 2 | The dev-seed `oid` swap | One `UPDATE`, above. Needs your Entra object id. Until it runs, a real Field sign-in correctly sees an empty list |
+| 3 | ⚠️ **Sprint 12's honest limit** | The web CI compiles Capacitor code and exercises its logic; **nothing exercises a plugin until real hardware**. `npm run verify` does not change that, and should not be read as if it does |
 
 ⚠️ **Sprint 11's idempotent replay no longer reaches back into the API — MC-337 landed early.**
 `Idempotency-Key` is on both write endpoints and keyed by `(actor, key)`, so Field's outbox has
