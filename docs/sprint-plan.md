@@ -1157,7 +1157,7 @@ written and proven as far as a runner can prove them.
 | **MC-123** | As a **developer**, `mc-field` produces an installable Android debug APK, so the app can be run on a real device. | 8 | ✅ **Done** — 4.3 MB, built on a runner, uploaded as an artifact. *(carried from Sprint 3)* |
 | **MC-421** | As **P3 (field crew lead)**, I attach a **photo** to a slip I record, so the reason is evidenced rather than asserted — including with no signal. | 8 | ⬜ |
 | **MC-424** | As a **developer**, evidence is **stored where it belongs**, so a photo outlives the phone that took it. | 8 | ⬜ *(split from MC-421 — see below)* |
-| **MC-422** | As **P3**, an update I record on site carries **where I was**, so "done" and "done from the car park" are distinguishable. | 5 | ⬜ |
+| **MC-422** | As **P3**, an update I record on site carries **where I was**, so "done" and "done from the car park" are distinguishable. | 5 | 🔄 **Server done** — contract 2.4.0. The Field half is next. |
 | **MC-423** | As **P3**, the app **hides the project when I put the phone down**, so a milestone schedule is not readable by whoever picks it up. | ~~5~~ **3** | ⬜ *(re-scoped from "biometric unlock" — see below)* |
 
 ### MC-123 is closed, and it took two fixes and eight sprints of not looking
@@ -1231,6 +1231,49 @@ the photo live in different stores and cannot commit together, so one of them go
 The trail is what a delay claim is argued from, so an entry pointing at nothing is the expensive
 failure and the blob is the cheap one. **Do the thing whose failure is cheapest to discover last** —
 which is precisely why MC-321 inserts the audit row *before* moving the date.
+
+### MC-422 — the server half, and the line it does not cross
+
+`milestone_log` gains three nullable columns and the write path carries them. **156 tests green.**
+
+**⚠️ Provenance on a deliberate act, not tracking.** A position arrives only with an update somebody
+chose to record, and there is deliberately **nowhere else in this service to put a coordinate** —
+no background fix, no periodic ping, nothing that answers "where was this person at 14:20". The
+schema is the enforcement: a future story that wanted continuous location would have to add a table
+and argue for it, rather than quietly reusing a column that was already there.
+
+**A missing position is never an error**, and three separate cases produce one: a PM at a desk, a
+crew lead who declines the permission, and an offline update replayed days later. An audit trail
+that refused a reason because a phone could not see the sky would have its priorities inverted.
+
+**The accuracy radius is kept, and a poor fix is stored rather than discarded.** A fix is a claim
+with an error bar: ±8 m and ±2,400 m from a cell tower are the same two numbers meaning entirely
+different things, and a reader shown only a coordinate believes it absolutely. A ±3 km fix is a bad
+answer and still a true one — dropping it would leave the trail claiming no position was available
+when one was.
+
+⚠️ **`getObject`, not `getDouble`.** JDBC returns `0.0` for a null double, and (0, 0) is a real
+place — so every milestone updated from a desk would appear 600 km off the coast of Ghana, and
+appear certain about it. There is a test named for exactly that.
+
+### Three CI rounds, and none of them was the domain
+
+The tax for having no JVM on this machine, and worth recording because the shapes recur:
+
+| Round | Cause |
+|---|---|
+| 1 | `position` inserted as the **third** record component instead of the last, colliding with `idempotencyKey`. Caught by the compiler in seconds |
+| 2 | **`ADD CONSTRAINT`, not a bare `CONSTRAINT`**, inside `ALTER TABLE`. Inside `CREATE TABLE` the keyword is optional, which is where the habit comes from; Postgres answers `syntax error at or near "CONSTRAINT"` and never mentions the missing word |
+| 3 | The hand-patched contract baseline was missing `minimum: 0`, which springdoc emits for `@Positive` |
+
+⚠️ **Round 2 is the one worth knowing.** A failed migration takes the whole application context with
+it, so **every test in the run errors and not one of them is the problem** — 60 red tests, one root
+cause, and the cause is four lines from the top of the log rather than anywhere near the failures.
+
+Round 3 ended by taking the **generated** spec wholesale rather than patching the baseline again.
+The baseline had been hand-edited for three releases and springdoc lays the file out differently, so
+99 lines of the diff were key ordering. Now that it byte-matches what CI produces, the next contract
+diff is only the contract — which is the entire point of the check.
 
 ### ⚠️ What this sprint cannot prove
 
