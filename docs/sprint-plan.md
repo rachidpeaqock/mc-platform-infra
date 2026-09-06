@@ -1158,7 +1158,7 @@ written and proven as far as a runner can prove them.
 | **MC-421** | As **P3 (field crew lead)**, I attach a **photo** to a slip I record, so the reason is evidenced rather than asserted — including with no signal. | 8 | ⬜ |
 | **MC-424** | As a **developer**, evidence is **stored where it belongs**, so a photo outlives the phone that took it. | 8 | ⬜ *(split from MC-421 — see below)* |
 | **MC-422** | As **P3**, an update I record on site carries **where I was**, so "done" and "done from the car park" are distinguishable. | 5 | ✅ **Done** — contract 2.4.0, 58 browser assertions. Verification against a site boundary is MC-425. |
-| **MC-423** | As **P3**, the app **hides the project when I put the phone down**, so a milestone schedule is not readable by whoever picks it up. | ~~5~~ **3** | ⬜ *(re-scoped from "biometric unlock" — see below)* |
+| **MC-423** | As **P3**, the app **hides the project when I put the phone down**, so a milestone schedule is not readable by whoever picks it up. | ~~5~~ **3** | ✅ **Done** — the content is replaced, not blurred. The biometric half is MC-426. *(re-scoped from "biometric unlock")* |
 
 ### MC-123 is closed, and it took two fixes and eight sprints of not looking
 
@@ -1310,6 +1310,38 @@ have leaned on. Silence is not an acceptable answer to "did that work".
 | ID | Story | Pts | Status |
 |---|---|---|---|
 | **MC-425** | As **P5 (admin)**, a project carries its **site coordinates and a radius**, so an update recorded 40 km away can be told apart from one recorded at the gantry. | 5 | ⬜ **To do — found while building MC-422.** The story was outlined as "GPS site *verification*", and verification is not possible: `project.location` is free text (`'Pointe-Sable Terminal'`) and there is no coordinate anywhere to compare a fix against. What shipped is the half that is real — the position is *recorded*, and a human reading the trail can see it. Comparing it to a boundary needs the boundary, which is planner data nobody has entered and no endpoint accepts. |
+
+### MC-423 — the privacy screen, and the story it refused to be
+
+**Done, and it does less than the outline promised on purpose.**
+
+When the app goes to the background, the OS screenshots it for the task switcher — and that
+screenshot shows a client's whole delivery schedule to anybody thumbing through a borrowed phone.
+The cover goes up before the app loses focus, so the switcher captures the cover instead. **That is
+a real and complete win, and it needs no biometric.**
+
+⚠️ **The content is replaced, not blurred.** A blur or an opacity on a parent is still composited
+into the snapshot on some devices; swapping the rendered tree means there is nothing underneath to
+capture. The test asserts no milestone name survives anywhere in the document, not that it looks
+hidden.
+
+**Two listeners, because the platforms disagree.** Capacitor's `appStateChange` is the native signal
+and never fires in a browser; `visibilitychange` is the web one and fires in a webview too, but on
+some Android versions only *after* the snapshot is taken. Listening to both means the cover is up in
+time where it matters and still works in the web build CI drives.
+
+**The cover sits ahead of the upgrade blocker**, which reads like an ordering detail and is not: a
+refused build's schedule is exactly as confidential as a working one's.
+
+| ID | Story | Pts | Status |
+|---|---|---|---|
+| **MC-426** | As **P3**, the app **asks for a biometric before revealing the schedule**, so somebody holding my unlocked phone still cannot read it. | 5 | ⬜ **To do — split out of MC-423, and deliberately parked with Shipping.** Two things make it premature. It needs a **third-party plugin** — there is no first-party Capacitor biometric — which is real supply-chain weight for a three-point story. And until the token is in Keychain/Keystore it protects the *screen* while the credential sits in webview storage beside it. It becomes worth doing on the day secure storage lands, and it should land in the same change. |
+
+**What MC-423 does not do, stated so nobody assumes otherwise:** it does not stop somebody who picks
+up an unlocked phone and switches back to Field. The cover lifts when the app returns to the
+foreground, because a tap-to-dismiss gate is pure friction — anyone who can reach the cover can tap
+it. Pretending otherwise would be the fifth instance of a control that looks like protection and is
+not.
 
 ### ⚠️ What this sprint cannot prove
 
