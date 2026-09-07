@@ -1859,6 +1859,80 @@ done.
 
 ---
 
+### The prefix guard — closing MC-430's residual risk · ✅ **Done**
+
+`GatewayRoutingTest` could not close this on its own, and saying why is the useful part: its
+path list is a **copy** of the contract, so it catches a path known there and unrouted, and is
+blind to a path added to the service that nobody added to the list. Reading the real contract
+from the gateway's build needs cross-repository access that a default CI token does not grant
+to two private repositories.
+
+**So the check went where the change is made.** `GatewayPrefixContractTest` lives in
+`mc-milestone-service`, reads the committed contract, and fails **in this repository, in the
+commit that caused it**, if an endpoint introduces a path prefix the gateway has never heard
+of — naming the prefix and the three places to add it. The duplication is five strings rather
+than nineteen paths, and **a new prefix is precisely the event behind all three bugs**.
+
+It asserts in both directions: a prefix nothing serves any more is flagged too, because a list
+maintained in only one direction stops being trustworthy.
+
+⚠️ **Neither test is sufficient alone.** This one cannot verify the gateway *actually* routes
+anything — only that no new prefix appeared. Someone deleting a predicate over there is caught
+by the gateway's test, not this one.
+
+The matcher mirrors Spring's `PathPattern` rather than using `startsWith`, because
+`<prefix>/**` matches the bare prefix too. **I made exactly that mistake while analysing the
+original bug** and briefly believed five paths were broken instead of three.
+
+---
+
+### ⚠️ Priorities 2 and 3 are blocked by the same boundary — and it is a real decision
+
+Working the risk list in order stopped at #1, and not for lack of time.
+
+| # | Item | Status |
+|---|---|---|
+| 1 | **B14** | ✅ Done (bar caching, argued away) — plus MC-430 and the prefix guard |
+| 2 | **JIT user provisioning** | 🚫 **Blocked by design** |
+| 3 | **Server-side notification read state** | 🚫 **Blocked by the same thing** |
+
+`V1__baseline.sql` opens by stating where these tables live, and it is unambiguous:
+
+```
+--  1. app_user, user_project_role       -> identity-service  (identity_db)
+--     activity_event, notification_read -> activity-service (activity_db)
+--     template, template_row            -> template-service (template_db)
+--     None of them appear here.
+```
+
+**JIT provisioning writes `app_user`. Read state writes `notification_read`.** Neither table
+exists in `milestone-service` and neither is supposed to. Building them here would not be a
+shortcut — it would contradict the decomposition the entire schema is designed around, in the
+one repository that has so far honoured it perfectly.
+
+Note this is **not** the MC-342 situation. There, `activity-service` was unnecessary because
+`milestone-service` already owned the facts. Here it is the opposite: **a user's identity and a
+user's read state are genuinely not milestone data**, and no amount of looking will find them
+already present.
+
+So the trigger that parks MC-214, MC-501 and MC-502 has now caught two more items, and the
+decision it defers is getting larger. Three options, and it is a product call rather than an
+engineering one:
+
+| Option | What it costs | What it buys |
+|---|---|---|
+| **Build `identity-service`** (E7, ~20 pts) | A fourth deployable, out of epic order | Names in the audit trail and the feed, JIT provisioning, ownership assignment, B2B guests |
+| **Build `activity-service`** (E5) | A fifth deployable | Read state — and it would still have nothing else to do, since the feed does not need it |
+| **Neither yet** | Names stay absent; the bell's watermark stays per browser | Nothing new to run, and both remain honestly documented as absent |
+
+⚠️ **Worth weighing against §11's evidence.** Real-time was estimated at one week and went
+thirteen sprints without being missed. Identity is not in that category — a platform where
+nobody has a name has a ceiling on how far it can be demonstrated — but read state plausibly
+is. **`identity-service` is the one with a real user-visible payoff; `activity-service` still
+does not have a job.**
+
+---
+
 ### B14 — the platform can now refuse, time out, and fail honestly · ✅ **Mostly done**
 
 §20 of the backend architecture called B14 "the largest genuine risk in this document". Three
@@ -1973,7 +2047,7 @@ however many times the phone retries.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **177 tests**, twelve against Azurite over the real Blob API. Contract **2.6.0** |
+| `mc-milestone-service` | **180 tests**, twelve against Azurite over the real Blob API. Contract **2.6.0** |
 | `mc-api-gateway` | **40 tests** — version gate, routing, rate limiting, timeouts, fallback |
 | `mc-dashboards` | **55 browser assertions**, in CI |
 | `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
