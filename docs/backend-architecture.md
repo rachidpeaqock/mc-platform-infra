@@ -611,7 +611,7 @@ record ChangeRealDateRequest(
 
 `{p}` = project id, `{m}` = milestone id. All requiring a valid Entra token.
 
-> ✅ **Reconciled against `api/openapi.json` on 2026-09-07 — contract 2.5.0.** The paths below are
+> ✅ **Reconciled against `api/openapi.json` on 2026-09-07 — contract 2.6.0.** The paths below are
 > what the service actually serves. ⚠️ **The prefix is `/api/v1`, not `/api`**, and the version is
 > in the path deliberately: v2 can be a different route to a different deployment rather than a
 > header negotiation nobody can see in a log.
@@ -622,6 +622,7 @@ record ChangeRealDateRequest(
 |---|---|---|---|
 | `GET` | `/api/v1/projects/{p}/milestones` | any member | Full tree; server-computed `variance` and `rag`. **`?owner=me`** narrows it to the caller's own milestones, resolved from the token — a phone is sent nine rows, not five thousand. ⚠️ `?updatedSince=` was designed and **not built** |
 | `GET` | `/api/v1/projects/{p}/summary` | any member | The executive read as aggregates — headline counts, days lost by reason, worst exposure, and the project's own start/finish dates |
+| `GET` | `/api/v1/projects/{p}/activity` | any member | **MC-342.** The project's recent activity for the notification bell — the audit trail read across milestones, as two lists. ⚠️ Carries **no captured position**, unlike `/history` |
 | `GET` | `/api/v1/milestones/{m}` | any member | Single milestone. ⚠️ **Does not** carry dependencies or log entries — those are their own paths, so the tree endpoint does not ship every audit row on the project |
 | `POST` | `/api/v1/milestones` | `pm`, `planner`, `admin` | Create. ⚠️ **Not** under `/projects/{p}` — the project is implied by the work package, and offering both would let a caller name a project and a package that disagree |
 | `PATCH` | `/api/v1/milestones/{m}` | `pm`, `planner`, `admin` | Name / owner / area / critical. **Carries neither date**: the field does not exist rather than being rejected |
@@ -865,6 +866,13 @@ mistake; see `platform-architecture.md` §9 for the threat model that separates 
 no `/realtime/token` endpoint, and no event publication registry table (see §6 — `V5` is
 ShedLock, not the outbox). Clients refetch; the dashboards' `pulse` signal is a client-side
 poll, not a push.
+
+✅ **And the notification bell was built anyway, in Sprint 13, without any of it** (MC-342).
+`GET /projects/{p}/activity` is fetched when the bell is opened and once on load. That is the
+strongest evidence this section has about its own necessity: **the feature real-time existed
+to enable turned out not to need it.** What remains genuinely push-shaped is narrower than
+this section assumes — someone else's change appearing on a screen you are already looking
+at — and it should be scoped as that, not as a general event backbone.
 
 It is documented here as a design rather than deleted, because it is the shape Sprint 13
 intends to build and the reasoning still holds. Two things about it have already been
@@ -1208,7 +1216,7 @@ The estimates are left as written so the plan can be judged rather than quietly 
 | B7 | Optimistic concurrency + idempotency | 4 d | ✅ **built** — `If-Match` **mandatory**, 428 without it |
 | B8 | `rebaseline` + role gating + immutability tests | 3 d | ✅ **built** |
 | B9 | `impact` (recursive CTE, cycle guard) | 3 d | ✅ **built** — with a stronger guard than the plan specified (§6) |
-| B10 | `activity` + notification read state | 3 d | ⚠️ **not started** — Sprint 13 |
+| B10 | `activity` + notification read state | 3 d | ✅ **activity built** (MC-342) as a query on the audit trail, not a service. ⚠️ **Read state is not**: the unread watermark is `localStorage`, so it is per browser, not per user |
 | B11 | `notification` (outbox → Web PubSub) + `/realtime/token` | 4 d | ⚠️ **not started** (§11) |
 | B12 | `template` + instantiate-project | 5 d | ⚠️ **not started** |
 | B13 | Scheduled jobs + ShedLock | 2 d | ✅ **built** — one job, hourly, both directions (§12) |

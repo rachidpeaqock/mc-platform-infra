@@ -1729,10 +1729,65 @@ Production builds clean in both apps.
 | Story | | Pts | State |
 |---|---|---|---|
 | **MC-427** | The preview uses the project's thresholds | 3 | ✅ **Done** |
-| **MC-342** | The activity feed and the notification bell show real platform events | 3 | ⬜ To do — **explicitly empty since Sprint 9**; must not be a surprise |
+| **MC-342** | The activity feed and the notification bell show real platform events | 3 | ✅ **Done** — and **without `activity-service` or Kafka**; see below |
 | **MC-214** | A schema registry with backward-compatibility enforcement gates every event-schema change | 5 | ⬜ To do — finally with a real event to gate |
-| **MC-501** | `activity-service` with its own database | — | ⬜ To size |
-| **MC-502** | Kafka as the event backbone; `milestone-service` produces | — | ⬜ To size |
+| **MC-501** | `activity-service` with its own database | — | ⚠️ **Re-open against a trigger, not a date** — the first event `milestone-service` does not already store |
+| **MC-502** | Kafka as the event backbone; `milestone-service` produces | — | ⚠️ **Same** — nothing consumes an event across a service boundary yet |
+
+### MC-342 — the bell, filled · 3 pts · ✅ **Done**
+
+Empty since Sprint 9, and honestly so. It now reads
+`GET /api/v1/projects/{id}/activity` — **contract 2.6.0**.
+
+**⚠️ The story was delivered without the two things the epic said it needed.**
+E5 called for `activity-service` with its own database and Kafka as the event backbone.
+Neither was built, and the argument for not building them is the same one every other
+decision in this codebase has made: **the activity feed *is* the audit trail.**
+`milestone-service` already owns it, already writes it in the same transaction as the change,
+and already guarantees it immutable. A second service holding a copy would be a second read
+path over the same facts — and it would be *eventually consistent* with a trail whose entire
+value is that it is not. Kafka is not needed to read a table.
+
+**`activity-service` earns its existence when there is an event `milestone-service` does not
+already store** — comments, assignments, document uploads. That is a real future, and it is
+not this sprint. MC-501 and MC-502 are therefore **not deferred, they are unjustified as
+written**, and should be re-opened against that trigger rather than a date.
+
+| Decision | Why |
+|---|---|
+| Fetched on **open**, not pushed | §13 of the deployment plan: real-time was a one-week estimate that sat untouched for twelve sprints while clients refetched and nobody complained |
+| … **and on load** | A badge that only becomes accurate once you have opened the bell is not a badge |
+| Two lists from the server, merged in the client | The server keeps a date change and a re-baseline apart because they are different acts; the flattening belongs at the one consumer that wants a timeline |
+| **No captured position in the response** | A feed row says what changed and who changed it. Sending coordinates to every reader of a project-wide feed would widen who can trace a person's movements far past the drawer built to show them |
+| **No `actor` rendered** | The API sends an identity-service id and nothing resolves it until Sprint 17. A raw UUID beside "slipped 4 days" is worse than silence, and an invented name is worse still |
+| A deleted milestone's activity leaves the feed | Its rows stay in the database — the trail outlives the milestone — but every other endpoint treats it as absent, and one that disagreed is how a client discovers deleted work exists |
+
+**Two things caught before they shipped.**
+
+⚠️ **A schema collision.** springdoc names a schema after a record's *simple* name, so
+`ProjectActivity.Rebaselining` would have collided with `MilestoneHistory.Rebaselining` and
+produced a contract in which one silently described the other. Renamed to `ActivityChange`
+and `ActivityRebaseline`. **Nested-record names are API surface on this project**, which is
+not obvious from the Java and is now written down in `OpenApiConfiguration`.
+
+⚠️ **A stray separator in the design system.** The activity row rendered
+`{{ source === 'field' ? 'Field' : actor }} · {{ ago }}`, and with no actor Angular renders
+an empty string — so a PM-sourced row read "· 12m ago". Fixed in `mc-design-system`, which
+**ships on that package's next release, not with this story**: it is consumed as a published
+package, so the harness still runs against the old build. Recorded here so it is not
+rediscovered as a defect.
+
+| | Before | After |
+|---|---|---|
+| `mc-milestone-service` tests | 168 | **177** (read from the CI log, not carried forward) |
+| `mc-dashboards` browser assertions | 41 | **52** |
+| Contract | 2.5.0 | **2.6.0** — additive; a 2.5.0 client keeps working having never called it |
+
+✅ CI green on the first push, **including `OpenApiContractTest`** — the hand-patched baseline
+matched what springdoc generated, which is the half of a backend change that cannot be checked
+on this laptop.
+
+---
 
 ⚠️ **Scope this sprint against what §13 of the deployment plan just showed.** Real-time
 fan-out was estimated at one week and sat untouched for twelve sprints while clients refetched
@@ -1754,9 +1809,9 @@ however many times the phone retries.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **168 tests**, twelve against Azurite over the real Blob API. Contract **2.5.0** |
+| `mc-milestone-service` | **177 tests**, twelve against Azurite over the real Blob API. Contract **2.6.0** |
 | `mc-api-gateway` | **17 tests**, including the version gate |
-| `mc-dashboards` | **41 browser assertions**, in CI |
+| `mc-dashboards` | **52 browser assertions**, in CI |
 | `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
 
 **No client on this platform holds domain data any more.** `mc-dashboards` lost the last of its seed
