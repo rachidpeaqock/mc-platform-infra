@@ -1897,6 +1897,51 @@ reads Entra app roles from the token, so a per-project role table would be a sec
 truth nothing consults — **the same ceremony MC-214 was parked for**, and it would have been
 easy to build it here simply because the architecture diagram has a box for it.
 
+#### MC-702 — and the names appear on screen · ✅ **Done**
+
+`identity-service` was infrastructure until something consumed it. `mc-dashboards` now
+resolves the actor ids in both places that carry them: **the notification bell** and **the
+drawer's audit trail**, which has printed the literal words "unresolved user" since MC-339.
+
+**One request per screen, not one per row.** `IdentityStore` batches every id out of the feed
+or the trail into a single `GET /users?ids=`, caches what comes back, and caches *unknown*
+ids as unresolved so a departed user is asked about once rather than on every render.
+`actorName()` in the template stays a pure lookup for exactly that reason: making it fetch
+would reintroduce, across a service boundary, the N+1 this screen has already acquired twice.
+
+⚠️ **A missing name is never an error, and that is the whole design.** Nothing in the compose
+file `depends_on` identity-service, and the client mirrors it: if identity is down, slow, or
+has never heard of somebody, every screen renders exactly as it did before the service
+existed. **A store that threw would turn an optional service into a required one by
+accident** — which is how a platform acquires an outage it never designed for. The harness
+asserts it directly: with identity returning 503, the feed still lists every entry, shows no
+error, and simply names nobody.
+
+**One existing assertion changed rather than being deleted.** "the actor is not dressed up as
+a name" tested for the literal "unresolved user" — the right claim when nothing could resolve
+anything. The claim it was *really* making survives: never a raw id dressed up as initials.
+That is what it asserts now, and the unresolved case kept its own assertion. Worth noting as a
+pattern: **a test that fails because a feature arrived is usually asserting the right thing in
+an expired way.**
+
+⚠️ **The stub crashed mid-suite and the symptom was a lie.** The dashboards stub keeps only the
+path in `url`, unlike `mc-field`'s which destructures path and query; copying the shape rather
+than reading it left an undefined `query` and took the process down. What the harness showed
+was an *unrelated write test* hanging on a sheet that never closed. **A dead stub does not
+announce itself — it makes the next assertion lie**, which is the same lesson as the stale
+stub in Sprint 12, arriving by a different route.
+
+| | Before | After |
+|---|---|---|
+| `mc-dashboards` browser assertions | 55 | **64** |
+
+⚠️ **`mc-field` is not wired.** Its list shows only the signed-in user's own milestones, so
+every actor on its screen is the person holding the phone — there is nothing to resolve. That
+is a real reason rather than an omission, and it changes the day Field shows anyone else's
+work.
+
+---
+
 #### Three CI rounds, and what each one was
 
 CI is the only compiler this project has, so the sequence is the record:
@@ -2136,7 +2181,7 @@ however many times the phone retries.
 | `mc-milestone-service` | **180 tests**, twelve against Azurite over the real Blob API. Contract **2.6.0** |
 | `mc-api-gateway` | **40 tests** — version gate, routing, rate limiting, timeouts, fallback |
 | `mc-identity-service` | **15 tests** — JIT provisioning, batch resolve, boundaries. Contract **1.0.0** |
-| `mc-dashboards` | **55 browser assertions**, in CI |
+| `mc-dashboards` | **64 browser assertions**, in CI |
 | `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
 
 **No client on this platform holds domain data any more.** `mc-dashboards` lost the last of its seed
