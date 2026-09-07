@@ -1827,6 +1827,113 @@ trap as MC-427 and MC-341. ✅ Confirmed failing first: `+4` where `+41` was due
 
 ---
 
+### MC-430 — the gateway was hiding three unreachable endpoints · ✅ **Done**
+
+Found while starting B14, and it outranks everything else in this sprint.
+
+The gateway's route predicate enumerates path prefixes. Three of the service's paths matched
+none of them:
+
+| Path | What it does | Consequence |
+|---|---|---|
+| `/api/v1/reason-codes` | The delay-reason catalogue | **The reason picker offers nothing.** MC-344 deliberately removed the local fallback list, so there is nothing behind it |
+| `/api/v1/evidence/{id}` | Photograph metadata | Uploaded evidence unreadable |
+| `/api/v1/evidence/{id}/image` | The bytes | Same |
+
+The evidence asymmetry is the part worth remembering: **the upload sits under `/milestones`
+and was routed, while the read has its own prefix and was not.** A crew lead could photograph
+a slip, watch it upload successfully, and nobody could ever open it.
+
+**Nothing had ever exercised these.** Nothing is deployed, and both browser harnesses drive a
+stub directly rather than through the gateway — so the gap was invisible from both sides at
+once. This is the third routing omission in the same list (calendars was the first, found by
+hand), and the failure mode is the nastiest available: **the service works perfectly when
+called directly and 404s at the edge.**
+
+`GatewayRoutingTest` now applies each route's predicate to a mock exchange for every path in
+contract 2.6.0. ⚠️ **Its limit is written into the test:** the path list is a *copy* of the
+contract, so it catches a path that is known there and unrouted, and cannot catch one added to
+the service that nobody added to the list. Closing that properly means the gateway build
+reading the service's published contract, which is CI work across two repositories and is not
+done.
+
+---
+
+### B14 — the platform can now refuse, time out, and fail honestly · ✅ **Mostly done**
+
+§20 of the backend architecture called B14 "the largest genuine risk in this document". Three
+of its four parts are built; the fourth is argued away below.
+
+| Part | State | |
+|---|---|---|
+| **Rate limiting** | ✅ Built | Write-only, at the gateway |
+| **Timeouts** | ✅ Built | There were none at all |
+| **Resilience** | ✅ Built | Circuit breaker + an honest fallback |
+| **Caching** | ⚠️ **Deliberately not built** | See below |
+| Observability | ⚠️ Actuator only | Tracing is MC-215, Sprint 17 |
+
+**Rate limiting — the burst is sized for an offline replay, not for a click.** That single
+constraint sizes the whole thing. `mc-field` queues writes with no signal and sends the lot
+when coverage returns, so a crew lead out for a shift legitimately arrives with dozens at
+once. A limiter tuned for a person clicking save would reject exactly the traffic the offline
+story exists to protect — at the worst possible moment, after the work is done, when the phone
+is finally handing it over. Default: burst 40, sustained 60/minute, writes only.
+
+Two things that would have made the limiter the bug rather than the fix:
+
+- **Actuator is excluded.** Container Apps restarts a container whose health probe fails, so a
+  limiter able to answer 429 to `/actuator/health` turns a busy minute into a restart loop —
+  and the symptom looks like anything but a limiter. The version gate learned this the same way.
+- **The bucket map is swept.** One entry per caller, never removed, is unbounded growth driven
+  by whoever is calling: **the limiter would itself be the denial of service.** Eviction drops
+  only *full* buckets, which is safe because a full bucket and a bucket that never existed
+  behave identically — so eviction can never wrongly grant capacity to someone being limited.
+
+I wrote the bucket lock-free over a packed `long` first and **replaced it with a synchronized
+one**. "Easier to be sure of by reading" was my stated argument for not taking a dependency,
+and the packed version was not that.
+
+**Timeouts — there were none.** A service that accepted a connection and then stopped
+answering would hold gateway connections indefinitely: one slow dependency taking down the
+single address every client has. ⚠️ Set to 30s rather than the 2–3s a JSON read deserves,
+**because of the evidence upload** — a timeout tuned for reads would abort photograph uploads
+from site links intermittently, and only for the users with the worst connections, which is
+the hardest possible defect to reproduce. The test fails if anyone tightens it below 15s, so
+the next person has to think about evidence first.
+
+The timeout test asserts on the **bound bean, not the YAML**, and that is the point: a property
+under the wrong prefix is not an error. Spring binds nothing, logs nothing, and the gateway
+runs on library defaults while the file sits there looking configured. The prefix moved when
+Spring Cloud 2025.x renamed the gateway artifact, so this is exactly the mistake that surfaces
+as an incident where a timeout everyone believed was set had never been read.
+
+**Resilience — ⚠️ the fallback is a 503, never an empty success.** The tempting fallback for a
+read is a cheerful empty body: the client renders, nothing errors, the outage is invisible.
+That is the worst thing this gateway could do. Every screen in this product exists to answer
+"what is late", so an empty milestone list tells a PM their project is fine in precisely the
+situation where the platform has no idea whether it is. **Looking healthy while being wrong is
+the one failure this system must never have**, and a silent empty fallback is that failure
+wearing a resilience pattern's name.
+
+⚠️ **What resilience is not proven to do: open.** That needs a downstream that can be made to
+fail, and nothing is deployed. The trip threshold, the half-open transition and the `forward:`
+dispatch are configuration read carefully and never executed against a real outage.
+
+**Caching — argued away rather than built.** The only cacheable thing on the platform is the
+reason catalogue, and it is a handful of rows behind an index, fetched **once per session** as
+part of `load()` — not per modal, as I first assumed. Caching that optimises nothing. Server
+memory is not the cost; the round trip is, and a server-side object cache does not touch the
+round trip. **If this is ever worth doing it is HTTP caching — `ETag` plus revalidation — so a
+client can get a 304 instead of the body**, which also respects MC-344 (the server still owns
+the list; the client just stops re-downloading an unchanged one). Not built, because a
+platform with no load does not need it and a cache is a second copy of the truth.
+
+| | Before | After |
+|---|---|---|
+| `mc-api-gateway` tests | 17 | **40** |
+
+---
+
 ### MC-214 — parked for the fourth time, and this time properly
 
 Moved Sprint 5 → 10 → 13, each time to the sprint that would produce the first event. Sprint 13
@@ -1867,7 +1974,7 @@ however many times the phone retries.
 | | |
 |---|---|
 | `mc-milestone-service` | **177 tests**, twelve against Azurite over the real Blob API. Contract **2.6.0** |
-| `mc-api-gateway` | **17 tests**, including the version gate |
+| `mc-api-gateway` | **40 tests** — version gate, routing, rate limiting, timeouts, fallback |
 | `mc-dashboards` | **55 browser assertions**, in CI |
 | `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
 

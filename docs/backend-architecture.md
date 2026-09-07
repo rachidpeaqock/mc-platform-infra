@@ -1220,7 +1220,7 @@ The estimates are left as written so the plan can be judged rather than quietly 
 | B11 | `notification` (outbox → Web PubSub) + `/realtime/token` | 4 d | ⚠️ **not started** (§11) |
 | B12 | `template` + instantiate-project | 5 d | ⚠️ **not started** |
 | B13 | Scheduled jobs + ShedLock | 2 d | ✅ **built** — one job, hourly, both directions (§12) |
-| B14 | Observability, caching, resilience, rate limiting | 4 d | ⚠️ **not started.** Actuator is on; there is no cache, no rate limit, no circuit breaker anywhere in the service or the gateway |
+| B14 | Observability, caching, resilience, rate limiting | 4 d | ✅ **mostly built** at the gateway — write rate limiting, connect/response timeouts (there were none), a circuit breaker with a 503 fallback that refuses to fake an empty project. ⚠️ **Caching deliberately not built**: the only cacheable thing is the reason catalogue, fetched once per session, and a server-side cache would not touch the round trip that is the actual cost. ⚠️ Tracing is still MC-215 |
 | B15 | OpenAPI → TypeScript client generation in CI | 2 d | ⚠️ **deliberately not done** — no `mc-api-client` exists; the two front ends declare their own wire types. See `platform-architecture.md` §0b for why that is a decision and not an omission |
 | B16 | Container Apps deploy, probes, migration job, runbook | 4 d | ⚠️ **not started** — nothing is deployed to Azure. Every environment so far is a container on a laptop or in CI |
 | | **Total** | **≈60 dev-days** | **≈35 days’ worth delivered; the remaining 25 are the four items that need a second service or a cloud account** |
@@ -1233,9 +1233,17 @@ cost is *not* code. They need an Azure subscription, a second deployable service
 published client package — organisational facts, not engineering ones. An estimate in
 dev-days silently assumes those exist.
 
-Second, **B14 being unstarted is the largest genuine risk in this document.** Caching,
-rate limiting and circuit-breaking are absent, and the system currently survives that only
-because its entire load is one developer and a CI job. The first real site would find it.
+Second, **B14 was the largest genuine risk in this document, and is now mostly closed.**
+Rate limiting, timeouts and circuit-breaking are built at the gateway (2026-09-07). Caching
+was argued away rather than built — the only cacheable thing is a handful of reason-code rows
+fetched once per session, and a server-side cache does not touch the round trip that is the
+real cost; `ETag` revalidation is the version worth building if load ever justifies it.
+
+⚠️ **What remains genuinely unprotected is one layer down.** The limiter and the breaker sit
+at the gateway, and every service is still directly addressable on its own port — which is the
+same threat model §10 already states for authorization. A caller who reaches `milestone-service`
+directly is limited by nothing at all. That is acceptable while the only network is a compose
+file, and it is the first thing to revisit the day anything is deployed.
 
 Front-end integration work runs in parallel from B5 onward — see
 [`azure-deployment-plan.md` §6](./azure-deployment-plan.md#6-frontend-changes-required).
