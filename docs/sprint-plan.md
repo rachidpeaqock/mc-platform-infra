@@ -1601,7 +1601,7 @@ Stories: extract `identity-service` with its own database · JIT user provisioni
 | Fitness functions skipped as "not user value" | 5 | They are the sprint goal — no demo, still non-negotiable |
 | Shared domain library created "just for DTOs" | 6–8 | MC-212 fails the build |
 | Screen-shaped endpoints in the core API | 9 | Aggregation goes in a BFF |
-| **A client re-implements a rule the server owns** | 9–10, then every new client | Held four times so far: `bizDays`/`ragOf` kept off the design system, the client status calculation deleted in MC-334, the reason catalogue served in MC-344, and the note rule moved into `reason_code`. **The ArchUnit rule that forbids this cannot see TypeScript**, so the only defence is that each new client is audited for it before it ships — which is what found all four |
+| **A client re-implements a rule the server owns** | 9–10, then every new client | Held four times, **missed once**. Held: `bizDays`/`ragOf` kept off the design system, the client status calculation deleted in MC-334, the reason catalogue served in MC-344, the note rule moved into `reason_code`. Missed: **MC-427**, for twelve sprints. ⚠️ **The audit looks for logic a client should not have, and MC-427 was logic a client legitimately has, fed the wrong number** — a preview `ragOf` is correct to exist and was correct in every line except where its tolerances came from. The audit question has to be "where does each input come from", not only "should this code be here". **The ArchUnit rule that forbids this cannot see TypeScript** |
 | **A second consumer needs a core change to be onboarded** | 10, rehearsed for 17 | Sprint 10 is the dry run for MC-701. Anything Field needs that `mc-dashboards` did not is a seam that was missing; `?owner=` is the first one found |
 | AI built before data exists | 18 | Epic ordering; needs ~6 months of real captures |
 | Token spend unmonitored | 19–20 | Cost metrics ship *with* the first feature, not after |
@@ -1618,7 +1618,7 @@ Then Sprint 1 — extracting the design system needs no backend, no Azure, and n
 
 ---
 
-## Between sprints · 2026-09-07 — the documents reconciled against the code
+## Sprint 13 opens · 2026-09-07 — MC-427, and the documents reconciled
 
 No sprint work. The four planning documents were checked line by line against what twelve
 sprints actually built, and annotated rather than rewritten — ✅ where the code matches, ⚠️
@@ -1670,7 +1670,82 @@ sell rather than a feature to run on, and Sprint 13 should scope it in that ligh
 
 ---
 
-## Where things actually stand · 2026-09-06 (end of Sprint 12)
+### MC-427 — the preview is coloured by the project, not by a constant · 3 pts · ✅ **Done**
+
+| | | | |
+|---|---|---|---|
+| **MC-427** | As **any user**, the colour on a date I have not yet committed to uses **my project's** tolerances, so the preview and the server agree. | 3 | ✅ **Done** — fixed in both clients, and the fixtures moved so the harness can see it |
+
+**What was wrong.** `THRESHOLDS = { amber: 3, red: 10 }` was a module constant in both
+`mc-field` and `mc-dashboards`. The server sends `amberThreshold` and `redThreshold` on every
+project tree read; neither client read them. `mc-dashboards` had even built the plumbing —
+`ProjectStore.thresholds()` existed, with a doc comment two files away pointing at it — and
+**had zero readers**. The constant was simply the shorter path.
+
+**What was done.**
+
+| Change | Where |
+|---|---|
+| Deleted `THRESHOLDS` | both `core/data.ts` |
+| **Removed `ragOf`'s default parameter** so `t` is required | both `core/data.ts` |
+| Added `thresholds` computed | `FieldStore` (it had none) |
+| Pointed the preview at it | `field.component.ts`, `reason-modal.component.ts` |
+| Replaced the store's own `{ amber: 3, red: 10 }` fallback | `ProjectStore` — the same constant, one layer down |
+
+**Removing the default is the actual fix.** Deleting the constant would have left the next
+call site free to invent another; a required argument means a new caller cannot compile
+without deciding where its tolerances come from, and there is exactly one correct answer.
+That is the same move as MC-344's refusal to keep a fallback reason list, applied to a value
+that had escaped the same reasoning — the argument was already written forty lines above the
+bug, in the same file.
+
+**The fixtures were the reason this survived twelve sprints**, so they changed too:
+
+| Harness | Was | Now | A 4/10-day slip |
+|---|---|---|---|
+| `mc-dashboards` | 3 / 10 | **8 / 12** — a tolerant project | was amber → now **green** |
+| `mc-field` | 3 / 10 | **2 / 8** — a strict project | was amber → now **red** |
+
+Deliberately in **opposite directions**. A client that merely swapped one hardcoded pair for
+another would pass one harness and fail the other; only reading the project's own numbers
+passes both.
+
+✅ **Both assertions were confirmed to fail against the old code before being accepted** —
+reverted to the constant, rebuilt, watched them go red (`var(--amber-bg)` in both), then
+restored. A test that passes before and after the fix proves nothing, and this defect is the
+second in three sprints to hide behind a fixture that agreed with it.
+
+| | Before | After |
+|---|---|---|
+| `mc-field` browser assertions | 75 | **77** |
+| `mc-dashboards` browser assertions | 39 | **41** |
+
+Production builds clean in both apps.
+
+---
+
+### Sprint 13 — the activity feed · Epic E5 opens
+
+| Story | | Pts | State |
+|---|---|---|---|
+| **MC-427** | The preview uses the project's thresholds | 3 | ✅ **Done** |
+| **MC-342** | The activity feed and the notification bell show real platform events | 3 | ⬜ To do — **explicitly empty since Sprint 9**; must not be a surprise |
+| **MC-214** | A schema registry with backward-compatibility enforcement gates every event-schema change | 5 | ⬜ To do — finally with a real event to gate |
+| **MC-501** | `activity-service` with its own database | — | ⬜ To size |
+| **MC-502** | Kafka as the event backbone; `milestone-service` produces | — | ⬜ To size |
+
+⚠️ **Scope this sprint against what §13 of the deployment plan just showed.** Real-time
+fan-out was estimated at one week and sat untouched for twelve sprints while clients refetched
+and nobody complained. The activity feed is worth building; **a live push channel is not
+obviously worth building yet**, and the two are separable — a feed that is fetched when the
+bell is opened needs no Web PubSub, no outbox and no client token endpoint, and it is the half
+that has an actual consumer waiting. Decide that before provisioning anything.
+
+
+
+---
+
+## Where things actually stand · 2026-09-07 (Sprint 13 open)
 
 **Sprints 0–12 complete. Epic E4 is finished bar shipping.** A crew lead can record an update with
 no signal, photograph the reason, walk back into coverage, and have all of it reach the project
@@ -1681,8 +1756,8 @@ however many times the phone retries.
 |---|---|
 | `mc-milestone-service` | **168 tests**, twelve against Azurite over the real Blob API. Contract **2.5.0** |
 | `mc-api-gateway` | **17 tests**, including the version gate |
-| `mc-dashboards` | **39 browser assertions**, in CI |
-| `mc-field` | **75 browser assertions**, in CI, plus an installable Android APK |
+| `mc-dashboards` | **41 browser assertions**, in CI |
+| `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
 
 **No client on this platform holds domain data any more.** `mc-dashboards` lost the last of its seed
 with MC-341; `mc-field` lost its own in Sprint 10; the reason catalogue is served (MC-344) and even
@@ -1691,7 +1766,7 @@ languages.
 
 | # | What is next | Why |
 |---|---|---|
-| 1 | **Sprint 13 — the activity feed** | Epic E5 opens: `activity-service` with its own database, a Kafka consumer, and MC-342's notification bell, which has been **explicitly empty since Sprint 9** and must not be a surprise. MC-214's schema registry lands here too, finally with a real event to gate |
+| 1 | **Sprint 13 — the activity feed** (open; MC-427 done) | Epic E5: `activity-service` with its own database, a Kafka consumer, and MC-342's notification bell, which has been **explicitly empty since Sprint 9** and must not be a surprise. MC-214's schema registry lands here too, finally with a real event to gate |
 | 2 | **Install the APK on a phone** | The first thing in this project that can be. Everything in Sprint 12 is written against Capacitor's web fallbacks, and one real device run will find things nothing in CI can |
 | 3 | The dev-seed `oid` swap | One `UPDATE`. Needs your Entra object id; until it runs a real Field sign-in correctly sees an empty list |
 
