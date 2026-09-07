@@ -1,10 +1,19 @@
 # Milestone Command — Backend Architecture
 
-**Spring Boot 4.1 · Java 25 LTS · PostgreSQL · Azure Container Apps**
+**Spring Boot 4.0.5 · Java 21 · PostgreSQL 17 · Maven · Azure Container Apps**
 
 Companion to [`azure-deployment-plan.md`](./azure-deployment-plan.md), which covers infrastructure, cost and rollout. This document is the backend build spec: module boundaries, domain model, every endpoint, every cross-cutting concern, and the code idioms to use.
 
-**Status:** design · **Written:** 2026-08-14 · **Revised:** 2026-08-15 · **Target repos:** `mc-milestone-service`, `mc-activity-service`, `mc-template-service`, `mc-identity-service`
+**Status:** partly built · **Written:** 2026-08-14 · **Last reconciled against the code:** 2026-09-07
+
+**Repos that exist:** `mc-discovery-server`, `mc-api-gateway`, `mc-milestone-service`.
+**Designed, not created:** `mc-activity-service`, `mc-template-service`, `mc-identity-service`.
+
+> ⚠️ **Read this document as two things at once.** Sections marked ✅ have been reconciled
+> against the code and describe what runs; sections marked ⚠️ describe a design that was not
+> built, and say so at the top. Where the build differs from the design, the difference and
+> its reason are stated rather than the design quietly rewritten — the discarded option is
+> usually the more useful half of the record.
 
 > **Superseded on decomposition only.** [`platform-architecture.md`](./platform-architecture.md) is now the authority on how many services exist and where the boundaries fall — §1 and §19 below are updated accordingly. **Everything else in this document applies unchanged to each individual service:** the domain model, aggregate invariants, persistence, API idioms, security, testing and build are per-service concerns and do not change because there are now four of them.
 
@@ -12,7 +21,7 @@ Companion to [`azure-deployment-plan.md`](./azure-deployment-plan.md), which cov
 
 ## Contents
 
-1. [Decision: modular monolith, not microservices](#1-decision-modular-monolith-not-microservices)
+1. [Decision: four services, each a modular monolith inside](#1-decision-four-services-each-a-modular-monolith-inside)
 2. [Stack and versions](#2-stack-and-versions)
 3. [Module map](#3-module-map)
 4. [Project layout](#4-project-layout)
@@ -22,7 +31,7 @@ Companion to [`azure-deployment-plan.md`](./azure-deployment-plan.md), which cov
 8. [Endpoint catalogue](#8-endpoint-catalogue)
 9. [Critical flows](#9-critical-flows)
 10. [Security](#10-security)
-11. [Real-time fan-out](#11-real-time-fan-out)
+11. [Real-time fan-out — ⚠️ designed, not built](#11-real-time-fan-out--⚠️-designed-not-built)
 12. [Scheduled work](#12-scheduled-work)
 13. [Cross-cutting concerns](#13-cross-cutting-concerns)
 14. [Configuration and secrets](#14-configuration-and-secrets)
@@ -38,6 +47,14 @@ Companion to [`azure-deployment-plan.md`](./azure-deployment-plan.md), which cov
 ## 1. Decision: four services, each a modular monolith inside
 
 **Decided 2026-08-15: microservices**, split by data ownership into `milestone-service`, `activity-service`, `template-service` and `identity-service`. Full rationale, repo map and sequencing in [`platform-architecture.md`](./platform-architecture.md).
+
+✅ **One of the four is built.** `milestone-service` runs, behind `mc-api-gateway` with
+`mc-discovery-server` for registration — three Spring Boot applications in total, of which
+one is a domain service. The other three domain services are unstarted, and the decision has
+held up well precisely because nothing forced them into existence early: identity is Entra,
+templates have no consumer yet, and activity waits on Sprint 13. **A four-service split where
+only one service has any data in it is, so far, a one-service system with two pieces of
+routing** — worth stating plainly, because the split's costs arrive before its benefits.
 
 **Each service is still internally modular.** Spring Modulith applies *within* every service exactly as described below: modules declare what they expose, internals are package-private, and the build fails on an illegal dependency. Distribution replaces the largest boundary; it does not remove the need for boundaries inside what remains. `milestone-service` in particular is substantial enough (catalog, audit, schedule, impact) to need them.
 
@@ -82,20 +99,27 @@ Verified against current releases as of August 2026.
 
 > ⚠️ **Pinned to Boot 4.0.x by Spring Cloud.** Boot 4.1.0 is the newest release, but **Spring Cloud 2025.1.x "Oakwood" targets Boot 4.0.x** — and Spring Cloud is where Eureka and Gateway live ([platform §8a](./platform-architecture.md#8a-gateway-and-service-discovery)). Adopting them pins the platform to the pair below. Revisit when a 4.1-compatible release train ships.
 
-| Component | Version | Notes |
-|---|---|---|
-| **Spring Boot** | **4.0.5** (March 2026) | Pinned by Spring Cloud compatibility, not by preference |
-| **Spring Cloud** | **2025.1.1 "Oakwood"** | Eureka (`spring-cloud-starter-netflix-eureka-server`/`-client`) and Gateway (`spring-cloud-starter-gateway-server-webflux` — **renamed** in this train) |
-| Spring Framework | 7.0.x | JDK 17 baseline, **JDK 25 recommended**, Jakarta EE 11, Servlet 6.1, JPA 3.2 |
-| **Java** | **25 LTS** | Boot 4.0 baseline is 17; take the LTS. JDK 24 removed virtual-thread monitor pinning (JEP 491), so blocking JDBC on virtual threads is finally safe. *(Note: this machine has JDK 17 and 19 installed — 25 is a prerequisite to install.)* |
-| Spring Modulith | 2.1.0 | The line that targets Boot 4.x |
-| Spring Security | 7.x | Ships with Boot 4.1; lambda DSL only |
-| Spring Data JPA | via Boot 4.1 BOM | Hibernate 7 |
-| PostgreSQL | 17 | Azure Database for PostgreSQL Flexible Server |
-| Flyway | 11.x | Schema migrations |
-| Testcontainers | 1.21.x | Integration tests against real Postgres |
-| Azure SDK | `azure-messaging-webpubsub`, `azure-identity` | Real-time publish, managed identity |
-| Build | Gradle 9 (Kotlin DSL) | Maven is fine too; examples here are Gradle |
+> ✅ **Reconciled against `mc-milestone-service/pom.xml` on 2026-09-07.** The **Built** column is what
+> the project actually resolves; where it differs from the original choice, the reason is given.
+
+| Component | Designed | **Built** | Why it differs |
+|---|---|---|---|
+| **Spring Boot** | 4.0.5 | ✅ **4.0.5** | — |
+| **Spring Cloud** | 2025.1.1 "Oakwood" | ✅ **2025.1.1** | — |
+| Spring Framework | 7.0.x | ✅ 7.0.x | — |
+| **Java** | **25 LTS** | ⚠️ **21 LTS** | Boot 4.0's baseline is 17 and **25 was never installed on the development machine**. CI compiles on 21, which is the version the code is actually proven against. The JEP 491 argument for 25 still holds and is unclaimed |
+| Spring Modulith | 2.1.0 | ⚠️ **2.0.7** | 2.1.0 does not target this Boot line |
+| Spring Security | 7.x | ✅ 7.x | — |
+| Persistence | Spring Data JPA / Hibernate 7 | ⚠️ **`JdbcClient`, no ORM** | The read path is SQL over a view JPA cannot usefully map, and the optimistic-concurrency check is a plain `WHERE row_version = ?` with a row count — more explicit than `@Version` and visible in a log. See §6 |
+| PostgreSQL | 17 | ✅ 17 | — |
+| Flyway | 11.x | ✅ 11.x | Migrations run as a **discrete pipeline step**, never on startup (MC-304) |
+| Testcontainers | 1.21.x | ⚠️ **2.0.4** | 2.x **renamed every module**: `org.testcontainers:postgresql` → `testcontainers-postgresql`, and the class moved to `org.testcontainers.postgresql`. Azurite runs as a plain `GenericContainer` precisely so it cannot break on the next rename |
+| **Object storage** | not designed | ✅ **`azure-storage-blob` 12.31.2** | Evidence photographs (MC-424). Tested against **Azurite**, Microsoft's own emulator, over the real Blob API |
+| Azure SDK (real-time) | `azure-messaging-webpubsub` | ⬜ not yet | Sprint 14 |
+| API docs | — | ✅ **springdoc 3.1.0** | Publishes the spec the contract test pins |
+| Scheduling lock | — | ✅ **ShedLock 7.9.0** | One replica runs the hourly sweep |
+| Architecture tests | — | ✅ **ArchUnit 1.5.0** | The fitness functions in §13 |
+| **Build** | **Gradle 9 (Kotlin DSL)** | ⚠️ **Maven** | Changed during Sprint 4. Examples in this document are still Gradle and have not been rewritten — they illustrate dependency *choices*, not build syntax |
 
 ### Spring Framework 7 features this design actually uses
 
@@ -257,112 +281,100 @@ milestone-command-api/
 
 ## 5. Domain model and invariants
 
-### The aggregate
+### ⚠️ The aggregate that was designed — and what got built instead
 
-`Milestone` is the aggregate root and the **only** place its state changes. No setters, no `save()` sprinkled through services.
+**This section described a JPA `@Entity` aggregate root with private setters. It does not
+exist.** There is no `Milestone` class in the service. The write path is
+`MilestoneService` — a transactional service issuing SQL through `JdbcClient` — and the
+read path is `MilestoneView`, a record projected straight off the `milestone_view` view.
+
+**Why it went that way.** The read model is a database view that computes `variance` and
+`rag` from `biz_days()` and the project's own thresholds. An ORM would have to map that
+view *alongside* the table it derives from, which is two mapped representations of one row
+and a standing invitation for them to disagree. And the write is one `UPDATE … WHERE
+id = ? AND row_version = ?`: the concurrency check **is** the `WHERE` clause, so there was
+nothing left for a persistence context to contribute except a second cache to invalidate.
+
+**What it cost.** The design's real argument was that an aggregate is a place invariants
+cannot be bypassed — you cannot reach the field without going through the method. That
+guarantee is gone. The checks now live at the top of `MilestoneService.changeRealDate`,
+and any future code that writes the `milestone` table without going through that method
+skips every one of them. ⚠️ **No fitness function currently forbids that** — the ArchUnit
+rules govern package dependencies and the variance/RAG ban, not who may issue an `UPDATE`.
+What actually holds the line is one layer down, in the database: `milestone_log.reason_code`
+is `NOT NULL`, so a write that skips the reason cannot record its audit row, and the
+`scheduled_date` trigger refuses a baseline move that did not come through re-baselining.
+The invariants survived the loss of the aggregate **because they were also written in
+SQL** — which is the argument for putting them in both places, not a reason it is fine
+that one place went away.
 
 ```java
-package com.milestonecommand.catalog.internal;
-
-@Entity
-@Table(name = "milestone")
-class Milestone {
-
-  @Id private UUID id;
-
-  @Column(nullable = false) private UUID projectId;
-  @ManyToOne(fetch = LAZY) private WorkPackage workPackage;
-
-  @Column(nullable = false) private String name;
-  private UUID ownerId;
-  private String area;
-
-  /** The baseline. Changes ONLY through rebaseline(). */
-  @Column(name = "scheduled_date", nullable = false) private LocalDate scheduledDate;
-
-  /** Forecast while pending, actual once done. */
-  @Column(name = "real_date", nullable = false) private LocalDate realDate;
-
-  @Enumerated(STRING) @Column(nullable = false) private MilestoneStatus status;
-  private boolean critical;
-
-  @Version private long version;                       // optimistic locking → ETag
-  private Instant createdAt;
-  private Instant updatedAt;
-  private Instant deletedAt;
-
-  // ---------- behaviour ----------
-
-  /**
-   * Routine forecast/actual update. Never touches scheduledDate.
-   * Returns the facts the caller needs for audit + events.
-   */
-  RealDateChanged changeRealDate(LocalDate newDate, ReasonCode reason, @Nullable String note,
-                                 UserId actor, SourceApp app, int workingDayDelta) {
-    if (this.status == MilestoneStatus.DONE && !newDate.equals(this.realDate)) {
-      throw new DomainException("milestone.done.locked",
-          "A completed milestone's date cannot be changed — re-open it first.");
-    }
-    if (!newDate.equals(this.realDate) && reason == null) {
-      throw new DomainException("reason.required",
-          "Every real-date change must carry a reason.");
-    }
-    if (reason == ReasonCode.OTHER && !StringUtils.hasText(note)) {
-      throw new DomainException("note.required",
-          "Reason 'Other' requires a note.");
-    }
-    var previous = this.realDate;
-    this.realDate = newDate;
-    this.updatedAt = Instant.now();
-    return new RealDateChanged(id(), previous, newDate, workingDayDelta, reason, note, actor, app);
-  }
-
-  /** The deliberate, audited baseline move. Role-gated at the API edge. */
-  Rebaselined rebaseline(LocalDate newScheduled, String reason, String justification, UserId actor) {
-    if (!StringUtils.hasText(justification)) {
-      throw new DomainException("justification.required",
-          "A re-baseline requires a written justification.");
-    }
-    var previous = this.scheduledDate;
-    this.scheduledDate = newScheduled;
-    this.updatedAt = Instant.now();
-    return new Rebaselined(id(), previous, newScheduled, reason, justification, actor);
-  }
-
-  void markDone(LocalDate actualDate) { this.realDate = actualDate; this.status = MilestoneStatus.DONE; }
-  void applyStatus(MilestoneStatus s) { this.status = s; }
-  void softDelete()                   { this.deletedAt = Instant.now(); }
+// The shape as built — catalog/internal/MilestoneService.java
+@Transactional
+public MilestoneView changeRealDate(ChangeRealDate command, UUID actorId) {
+  // … idempotency replay check first: a retried write returns the first result
+  var row = load(command.milestoneId());                  // SELECT … FOR the version
+  if (row.status() == DONE && !command.realDate().equals(row.realDate()))
+    throw new ConflictException("milestone.done.locked", …);
+  if (!command.realDate().equals(row.realDate()) && command.reasonCode() == null)
+    throw new DomainException("reason.required", …);
+  if (requiresNote(command.reasonCode()) && !hasText(command.note()))
+    throw new DomainException("note.required", …);
+  requireOwnEvidence(command.evidenceId(), command.milestoneId());
+  // … UPDATE … WHERE id = ? AND row_version = ?  — 0 rows means someone got there first
 }
 ```
+
+Two details in that method are not in the original design and were each paid for once:
+
+- **`requiresNote` is a column, not a Java `switch` on `OTHER`.** The catalogue owns which
+  reasons demand an explanation, so adding one does not require a deployment (MC-344).
+- **`requireOwnEvidence`** exists because uploading a photograph against milestone A and
+  then citing it from a change on milestone B is a forgery route. It was found only when
+  an over-broad `catch` was narrowed — the check that would have caught it was busy
+  blaming `reason_code` for every integrity violation.
 
 ### Invariants, and where each is enforced
 
 | Invariant | Enforced at |
 |---|---|
-| Real-date change carries a reason | Aggregate (`changeRealDate`) — **and** DB `NOT NULL` on `milestone_log.reason_code` |
-| Reason `OTHER` requires a note | Aggregate |
-| `scheduled_date` moves only via re-baseline | Aggregate + DB trigger + role check |
-| Re-baseline requires justification | Aggregate + DB `NOT NULL` |
+| Real-date change carries a reason | `MilestoneService.changeRealDate` — **and** DB `NOT NULL` on `milestone_log.reason_code`, which is what actually holds |
+| A reason that requires a note has one | `MilestoneService` — driven by `reason_code.requires_note`, **not** a hardcoded `OTHER` (MC-344) |
+| `scheduled_date` moves only via re-baseline | DB trigger + role check. ⚠️ There is no aggregate to add a third layer |
+| Re-baseline requires justification | `MilestoneService.rebaseline` + DB `NOT NULL` |
 | Audit rows are never updated or deleted | DB grants (`REVOKE UPDATE, DELETE`) |
-| Only the owner (or a PM) may update from Field | `@PreAuthorize` + service check |
+| Only the owner (or a PM) may update from Field | `MilestoneAuthorization` — and the **same rule on evidence upload**, since uploading is half of forging |
 | Variance/RAG are derived, never stored | `schedule` module + DB view |
 | No dependency cycles | Insert-time check with a recursive CTE |
-| Status derives from dates + thresholds | `StatusPolicy` (§12 for the nightly sweep) |
+| Status derives from dates + thresholds | `StatusSweeper` (§12 for the nightly sweep) |
 
-### Status policy — a gap in the current front end
+### Status policy — built, and it runs hourly
 
-The Angular app treats `missed` as static seed data. Nothing ever *becomes* missed. Server-side:
+The original note here said the Angular app treats `missed` as static seed data and nothing
+ever *becomes* missed. That is fixed, and not in the app: **status is the server's**, and no
+client derives it. `StatusSweeper` owns the rules.
 
-```java
-MilestoneStatus derive(Milestone m, LocalDate today, Thresholds t, int variance) {
-  if (m.status() == DONE)                              return DONE;
-  if (m.realDate().isBefore(today))                    return MISSED;   // past due, not done
-  if (variance > t.amber())                            return ATRISK;
-  return PENDING;
-}
+```
+DONE                                     → stays done. Nothing reopens a milestone on a timer.
+real_date < today and not done           → missed
+variance > project.amber_threshold       → atrisk
+variance back within the threshold       → pending          ← the recovery arm
 ```
 
-Applied on every write **and** by the nightly sweeper (§12), so a milestone that quietly goes past due is flagged without anyone touching it.
+Two corrections to the design as written:
+
+- **It is hourly, not nightly** (`0 5 * * * *`). A milestone that goes past due at 09:00 is
+  flagged by 10:05, not tomorrow morning. On a site where the morning meeting *is* the
+  product, a nightly sweep means the board is wrong for the meeting that matters.
+- **It recovers as well as degrades.** The design only ever moved status downhill. Without
+  the recovery arm, a milestone pulled back inside the amber threshold stays amber for good,
+  and a board that never improves is a board people stop believing. Every status the sweeper
+  sets is reachable in both directions except `done`.
+
+Each of those four statements is a separate `UPDATE` in one transaction, and the sweeper
+holds a **ShedLock** (`milestone-status-sweep`) so two replicas do not both sweep. It also
+expires spent idempotency keys on the same tick — the table is a cache of recent writes, and
+nothing else was ever going to clean it up.
 
 ---
 
@@ -372,14 +384,31 @@ Full DDL lives in [`azure-deployment-plan.md` §4](./azure-deployment-plan.md#4-
 
 ### Migrations — Flyway
 
+✅ **As built — nine migrations, reconciled 2026-09-07.** The plan's five are not the five
+that exist, and the order differs: `V5` is ShedLock, not the outbox.
+
 ```
 db/migration/
-  V1__baseline.sql                  tables, enums, indexes, views
-  V2__seed_reference_data.sql       reason codes, default work calendar
-  V3__audit_immutability.sql        REVOKE + trigger guarding scheduled_date
-  V4__idempotency.sql               idempotency_key table
-  V5__outbox.sql                    Modulith event publication table
+  V1__baseline.sql                  tables, enums, indexes
+  V2__derived.sql                   biz_days() + milestone_view — variance and RAG live here
+  V3__immutable_audit.sql           REVOKE UPDATE/DELETE + the scheduled_date trigger
+  V4__reason_codes.sql              the delay-reason catalogue
+  V5__shedlock.sql                  the scheduler's lock table
+  V6__idempotency.sql               idempotency_key
+  V7__reason_code_requires_note.sql requires_note — a column, so adding a reason is data
+  V8__capture_position.sql          where the phone was standing (MC-420)
+  V9__evidence.sql                  the photograph's metadata; the bytes are in Blob
 ```
+
+⚠️ **There is no outbox table.** Modulith's event publication registry was designed in and
+never turned on, because nothing yet consumes an event across a service boundary — see §11,
+which is still unbuilt for the same reason.
+
+⚠️ **`V2` is load-bearing in a way a migration usually is not.** `milestone_view` is where
+variance and RAG are computed, and an ArchUnit rule forbids any Java method from computing
+them (`ArchitectureRulesTest`, the `ragOf|bizDays|variance` name ban). That rule is the only
+thing standing between one definition of "late" and four — one per client. Changing the view
+changes the product's central number for every reader at once, which is the point.
 
 **Run migrations as a discrete pipeline step, not on app startup, in production.** Flyway does take a lock so concurrent replicas are safe, but coupling schema change to rollout means a bad migration takes the app down with it. Set `spring.flyway.enabled=false` in prod and run a Container Apps *job* against the same image:
 
@@ -389,40 +418,59 @@ az containerapp job start -n mc-prod-migrate -g mc-prod   # runs `java -jar app.
 
 Keep `enabled=true` for `local` and `dev` profiles where convenience wins.
 
-### JPA where it fits, SQL where it doesn't
+### ✅ SQL everywhere — there is no JPA
 
-Use Spring Data JPA for aggregate load/save. Use **native SQL for the two queries JPA models badly**:
+This section read "use Spring Data JPA for aggregate load/save, native SQL for the two
+queries JPA models badly." **The second half won outright**: every query in the service goes
+through `JdbcClient`, and Hibernate is not on the classpath. The reasoning is in §5 — with
+`milestone_view` computing the product's central numbers, an ORM would be a second mapping
+of rows the database already projects.
 
-**1. Downstream impact — recursive CTE with cycle protection:**
+The two queries named as JPA-hostile are still the two that carry the most design, and both
+are built.
 
-```java
-@Repository
-class DependencyGraphRepository {
+**1. Downstream impact — recursive CTE, with the cycle guard done properly:**
 
-  private static final String DOWNSTREAM = """
-      WITH RECURSIVE ds AS (
-          SELECT d.successor_id AS id, 1 AS depth
-            FROM milestone_dependency d
-           WHERE d.predecessor_id = :root
-          UNION
-          SELECT d.successor_id, ds.depth + 1
-            FROM milestone_dependency d
-            JOIN ds ON d.predecessor_id = ds.id
-           WHERE ds.depth < 50
-      )
-      SELECT m.id, m.name, m.area, m.real_date, m.scheduled_date, m.status, ds.depth
-        FROM ds JOIN milestone_view m ON m.id = ds.id
-       WHERE m.status <> 'done'
-       ORDER BY ds.depth, m.real_date
-      """;
-
-  List<DownstreamRow> downstream(UUID rootId) { /* JdbcClient query */ }
-}
+```sql
+WITH RECURSIVE walk AS (
+  SELECT d.successor_id AS id, 1 AS depth,
+         ARRAY[d.predecessor_id, d.successor_id] AS path   -- origin seeded in
+    FROM milestone_dependency d WHERE d.predecessor_id = :id
+  UNION ALL
+  SELECT d.successor_id, w.depth + 1, w.path || d.successor_id
+    FROM walk w JOIN milestone_dependency d ON d.predecessor_id = w.id
+   WHERE w.depth < :maxDepth
+     AND NOT (d.successor_id = ANY (w.path))               -- the actual guard
+),
+nearest AS (SELECT DISTINCT ON (id) id, depth FROM walk ORDER BY id, depth)
+SELECT n.depth, v.* FROM nearest n JOIN milestone_view v ON v.id = n.id
+ ORDER BY n.depth, v.scheduled_date, v.name
 ```
 
-`UNION` (not `UNION ALL`) plus the depth guard makes a cyclic graph terminate instead of hanging a request thread. Postgres 14+ `CYCLE` syntax is the alternative.
+⚠️ **The design said `UNION` (not `UNION ALL`) plus a depth guard. That is not enough.**
+`UNION` de-duplicates whole rows, and the rows here carry a depth, so the same milestone
+reached at depth 3 and at depth 7 is two distinct rows and the walk keeps going until the
+depth guard stops it. The depth guard then becomes the *only* protection — it terminates, but
+after doing exponential work on a graph with a loop in it. The path array is the real fix: a
+node already on this path is never re-entered, so a cycle costs one wasted hop instead of a
+truncated blow-up.
 
-**2. The dashboard read model** — one projection query rather than 32 lazy loads. Use `JdbcClient` with a `record` mapper; do not let Hibernate near the exec dashboard.
+Two consequences worth keeping:
+
+- **The origin is seeded into the path**, so a dependency pointing back at the milestone you
+  asked about is caught on the first hop rather than the second lap.
+- **`DISTINCT ON (id) … ORDER BY id, depth` keeps the shortest path** to each affected
+  milestone. A milestone reachable three ways is one row at its most direct depth — because
+  the number this screen exists to communicate is "how close is this to me", and the longest
+  chain of causation is the least honest answer to that.
+
+A dependency cycle is a **data-entry mistake, not an impossibility**, which is why the guard
+lives in the read query and not only in the insert-time check.
+
+**2. The project tree and summary** — one projection query each, not 32 lazy loads. The tree
+endpoint prunes: with `?owner=me`, phases and work packages holding none of the caller's
+milestones are dropped rather than returned empty, so a phone is never sent the scaffolding
+of work that is not its own.
 
 ### Connection pool sizing — the Container Apps trap
 
@@ -561,22 +609,54 @@ record ChangeRealDateRequest(
 
 ## 8. Endpoint catalogue
 
-`{p}` = project id, `{m}` = milestone id. All under `/api`, all requiring a valid Entra token.
+`{p}` = project id, `{m}` = milestone id. All requiring a valid Entra token.
+
+> ✅ **Reconciled against `api/openapi.json` on 2026-09-07 — contract 2.5.0.** The paths below are
+> what the service actually serves. ⚠️ **The prefix is `/api/v1`, not `/api`**, and the version is
+> in the path deliberately: v2 can be a different route to a different deployment rather than a
+> header negotiation nobody can see in a log.
 
 ### Milestones
 
 | Method | Path | Roles | Notes |
 |---|---|---|---|
-| `GET` | `/projects/{p}/milestones` | any member | Full tree; server-computed `variance`, `rag`, `version`. Supports `?updatedSince=` for delta sync |
-| `GET` | `/milestones/{m}` | any member | Single, with dependencies + last 20 log entries |
-| `POST` | `/projects/{p}/milestones` | `pm`, `planner`, `admin` | Create |
-| `PATCH` | `/milestones/{m}` | `pm`, `planner`, `admin` | Name/owner/area only — **rejects `scheduledDate` with 422** |
-| `DELETE` | `/milestones/{m}` | `pm`, `admin` | Soft delete |
-| `POST` | `/milestones/{m}/real-date` | `pm`, `planner`, `admin`, or `field` **if owner** | The high-frequency call. `If-Match` + `Idempotency-Key` |
-| `POST` | `/milestones/{m}/mark-done` | same as above | Sets actual date + status `DONE` |
-| `POST` | `/milestones/{m}/rebaseline` | **`pm`, `planner` only** | Justification mandatory |
-| `GET` | `/milestones/{m}/log` | any member | Paged audit trail |
-| `GET` | `/milestones/{m}/rebaselines` | any member | Baseline history |
+| `GET` | `/api/v1/projects/{p}/milestones` | any member | Full tree; server-computed `variance` and `rag`. **`?owner=me`** narrows it to the caller's own milestones, resolved from the token — a phone is sent nine rows, not five thousand. ⚠️ `?updatedSince=` was designed and **not built** |
+| `GET` | `/api/v1/projects/{p}/summary` | any member | The executive read as aggregates — headline counts, days lost by reason, worst exposure, and the project's own start/finish dates |
+| `GET` | `/api/v1/milestones/{m}` | any member | Single milestone. ⚠️ **Does not** carry dependencies or log entries — those are their own paths, so the tree endpoint does not ship every audit row on the project |
+| `POST` | `/api/v1/milestones` | `pm`, `planner`, `admin` | Create. ⚠️ **Not** under `/projects/{p}` — the project is implied by the work package, and offering both would let a caller name a project and a package that disagree |
+| `PATCH` | `/api/v1/milestones/{m}` | `pm`, `planner`, `admin` | Name / owner / area / critical. **Carries neither date**: the field does not exist rather than being rejected |
+| `DELETE` | `/api/v1/milestones/{m}` | `pm`, `admin` | Soft delete — the audit trail references the row and outlives it |
+| `POST` | `/api/v1/milestones/{m}/real-date` | `pm`, `planner`, `admin`, or `field` **if owner** | The high-frequency call. `If-Match` **mandatory** (428 without it) + optional `Idempotency-Key`. Carries the reason, an optional captured position, and an optional evidence id |
+| `POST` | `/api/v1/milestones/{m}/rebaseline` | **`pm`, `planner` only** | Justification mandatory |
+| `GET` | `/api/v1/milestones/{m}/history` | any member | The delay log **and** the re-baseline history, as two separate lists |
+| `GET` | `/api/v1/milestones/{m}/dependencies` | any member | Direct predecessors and successors, with link `type` and `lagDays` |
+| `GET` | `/api/v1/milestones/{m}/impact` | any member | The transitive downstream walk — what a slip here threatens |
+
+⚠️ **`POST /milestones/{m}/mark-done` was designed and does not exist.** Completion is
+`real-date` with `status: "done"`, because marking done *is* setting the actual date and a second
+endpoint would be a second way to write the same audit row — with its own chance of skipping the
+reason.
+
+⚠️ **`/log` and `/rebaselines` became one `/history`.** Two lists in one response rather than two
+calls, because a drawer opening on a milestone wants both, and they are kept as separate lists
+because a date change and a re-baseline are different acts.
+
+### Reference data, evidence, and the calendar
+
+| Method | Path | Roles | Notes |
+|---|---|---|---|
+| `GET` | `/api/v1/reason-codes` | any member | The delay-reason catalogue, in presentation order, with `hue` and `requiresNote`. **No client holds a copy** |
+| `POST` | `/api/v1/milestones/{m}/evidence` | same rule as `real-date` | Multipart photograph upload. Returns an id the write then cites. Uploading against somebody else's milestone is the first half of forging their trail, so the authorization is identical |
+| `GET` | `/api/v1/evidence/{id}` | any member | Metadata: type, size, sha256, who and when |
+| `GET` | `/api/v1/evidence/{id}/image` | any member | The bytes, digest re-checked. `nosniff` + content-disposition, because this is the one route where a mistake is stored XSS rather than a broken image |
+| `GET` `POST` | `/api/v1/calendars` | read: any member · write: `admin` | Work calendars |
+| `GET` | `/api/v1/calendars/{id}` | any member | One calendar |
+| `PUT` | `/api/v1/calendars/{id}/work-days` | `admin` | The site week — ISO day numbers |
+| `GET` `POST` | `/api/v1/calendars/{id}/holidays` | read: any member · write: `admin` | |
+| `DELETE` | `/api/v1/calendars/{id}/holidays/{day}` | `admin` | |
+
+**Calendar reads are open to any authenticated user on purpose**: a client needs the site's work
+pattern to render a date picker that skips non-working days. Only the writes are `admin`.
 
 **Request/response for the central call:**
 
@@ -719,88 +799,123 @@ spring.security.oauth2.resourceserver.jwt:
   audiences: api://milestone-command
 ```
 
-### Two layers of authorisation
+### ✅ Two layers of authorisation — built as designed
 
-**Role level** — coarse, annotation-driven:
+**Role level** — coarse, annotation-driven, on the controller:
 
 ```java
-@PreAuthorize("hasAnyRole('PM','PLANNER')")
-public RebaselineResult rebaseline(Rebaseline cmd) { ... }
+@PreAuthorize("hasAnyRole('PM','PLANNER')")           // rebaseline
+@PreAuthorize("hasAnyRole('PM','PLANNER','ADMIN')")   // create, edit, delete
 ```
 
-**Row level** — the rule the UI implies but nothing enforces: *a field user may only update milestones they own.*
+**Row level** — the rule the UI implies: *a field user may only update milestones they own.*
 
 ```java
 @Component("milestoneAuth")
 class MilestoneAuthorization {
-  public boolean canChangeRealDate(UUID milestoneId, Authentication auth) {
-    if (hasAnyRole(auth, "PM", "PLANNER", "ADMIN")) return true;
-    return hasRole(auth, "FIELD") && milestones.isOwnedBy(milestoneId, currentUserId(auth));
+  public boolean canChangeRealDate(UUID milestoneId, Authentication authentication) {
+    if (hasAnyRole(authentication, "PM", "PLANNER", "ADMIN")) return true;
+    if (!hasAnyRole(authentication, "FIELD"))                 return false;
+    return milestones.isOwnedBy(milestoneId, currentActor.idOf(token));
   }
 }
 
-@PreAuthorize("@milestoneAuth.canChangeRealDate(#cmd.milestoneId().value(), authentication)")
-public ChangeResult changeRealDate(ChangeRealDate cmd) { ... }
+@PreAuthorize("@milestoneAuth.canChangeRealDate(#milestoneId, authentication)")
 ```
 
-Every authorization rule gets a test that asserts **denial**, not just permission — the common bug is a rule that never fires.
+✅ **The same expression guards evidence upload.** `EvidenceController` does not have a rule of
+its own — it references `canChangeRealDate`, because uploading a photograph against a
+milestone is the first half of writing to it. A separate, weaker rule on the upload endpoint
+would have been the obvious way to write it and would have left the forgery route open at the
+door rather than in the room. (The other half of that route — citing *somebody else's* upload
+from your own milestone — is closed in the service by `requireOwnEvidence`; see §5.)
+
+⚠️ **One deviation:** the annotations sit on the **controller**, not the service as sketched
+above. That is a real weakening — a second caller reaching the service directly is unguarded
+— and it is tolerable today only because the module rules mean the only caller *is* the web
+layer. If a scheduled job or an event listener ever needs to change a real date, the check
+has to move down before that code is written, not after.
+
+Every authorization rule has a test asserting **denial**, not just permission — the common bug
+is a rule that never fires.
 
 ### Other security requirements
 
-- **JIT user provisioning** — first authenticated request creates the `app_user` row from token claims; no manual user admin.
-- **B2B guests** for client-side users (Meridian Energy) rather than a second identity system.
-- **Actor is taken from the token, never the request body.** Today the client sends `by: 'You'`; that field must be ignored server-side or the audit trail is forgeable.
-- **Rate limiting** — Bucket4j per user on write endpoints, or push it to Azure Front Door / APIM.
-- **Managed identity** for Key Vault and Postgres (Entra authentication for Postgres removes the password entirely).
-- **Audit the reads too** if the client contract requires it — access logging on `/projects/{p}/summary` is cheap and answers "who saw the slippage and when".
+| Requirement | Status |
+|---|---|
+| **Actor is taken from the token, never the body** | ✅ `CurrentActor`. The client's `by:` field, if sent, is ignored — otherwise the audit trail is forgeable, which would make the whole product a lie |
+| Audit rows immutable | ✅ DB `REVOKE`, proven by `AuditImmutabilityTest` |
+| Evidence served safely | ✅ `nosniff` + content-disposition, digest re-checked on read (§10a of `platform-architecture.md`) |
+| **JIT user provisioning** | ⚠️ **not built.** A user row exists only if seeded; a genuinely new Entra user authenticates fine and then owns nothing |
+| B2B guests for client-side users | ⚠️ not built — no tenant exists yet |
+| **Rate limiting** | ⚠️ **not built** — nothing limits write volume anywhere. See §20 B14 |
+| Managed identity for Key Vault / Postgres | ⚠️ not built — nothing is deployed to Azure |
+| Audit the reads | ⚠️ not built — cheap, and worth doing before the first client asks "who saw the slippage and when" |
+
+⚠️ **The minimum-client-version gate lives at the gateway, not here** (`ClientVersionGate`),
+and that is deliberate: a version check is not authorization, and putting it at the edge keeps
+it out of every service. The inverse — putting *authorization* at the edge — would be the
+mistake; see `platform-architecture.md` §9 for the threat model that separates them.
 
 ---
 
-## 11. Real-time fan-out
+## 11. Real-time fan-out — ⚠️ designed, not built
 
-Spring Modulith's event publication registry **is** a transactional outbox: the event row commits with your data, and delivery is retried until acknowledged.
+**None of this section exists.** There is no `notification` module, no Web PubSub resource,
+no `/realtime/token` endpoint, and no event publication registry table (see §6 — `V5` is
+ShedLock, not the outbox). Clients refetch; the dashboards' `pulse` signal is a client-side
+poll, not a push.
+
+It is documented here as a design rather than deleted, because it is the shape Sprint 13
+intends to build and the reasoning still holds. Two things about it have already been
+learned the hard way, though, and belong in the design before anyone implements it:
+
+- **A group per project is not sufficient once `?owner=me` exists.** A field user is
+  deliberately sent only their own milestones on the read path; putting them in
+  `project-{id}` would push them every change on the project, which is the same leak by a
+  different route. The fan-out has to respect the same narrowing the query does.
+- **The payload must not become a second read path.** Stated in the original design and
+  worth keeping in bold, because the pressure to "just include the new variance" will be
+  immediate — and §6's ArchUnit rule exists precisely to stop a second definition of the
+  number appearing outside the view.
+
+The original design, retained for Sprint 13:
 
 ```java
 // catalog — inside the transaction
 events.publishEvent(new RealDateChanged(...));
 
 // notification/internal — after commit, async, retried
-@Component
-class RealtimeEventListener {
-
-  private final WebPubSubServiceClient hub;
-
-  @ApplicationModuleListener                       // = @Async + @TransactionalEventListener(AFTER_COMMIT) + @Transactional
-  @Retryable(maxAttempts = 4, delay = 500, multiplier = 2.0)   // org.springframework.core.retry
-  void on(RealDateChanged e) {
-    hub.sendToGroup("project-" + e.projectId(),
-        RealtimePayload.from(e).toJson(), WebPubSubContentType.APPLICATION_JSON);
-  }
+@ApplicationModuleListener       // = @Async + @TransactionalEventListener(AFTER_COMMIT) + @Transactional
+@Retryable(maxAttempts = 4, delay = 500, multiplier = 2.0)
+void on(RealDateChanged e) {
+  hub.sendToGroup("project-" + e.projectId(), RealtimePayload.from(e).toJson(), APPLICATION_JSON);
 }
 ```
 
-- **At-least-once delivery.** Payloads carry the event id; the SPA dedupes. The current `pulse` signal already tolerates this.
-- **Incomplete publications are visible** — `spring.modulith.events.republish-outstanding-events-on-restart=true`, and the registry table is queryable for an alert on stuck events.
-- **Group per project** (`project-{id}`), so a user only receives what they can see. The `/realtime/token` endpoint mints a client token scoped to exactly those groups — never let the browser choose its own group.
-- **Payload is a summary, not the aggregate.** Enough for the toast and to trigger a targeted refetch. It must not become a second, divergent read path.
+- **At-least-once delivery.** Payloads carry the event id; the client dedupes.
+- **Incomplete publications must be visible** — `republish-outstanding-events-on-restart=true`,
+  and the registry table queryable for an alert on stuck events.
+- **The server mints the client's token, scoped to the groups it is allowed** — never let a
+  browser name its own group.
 
 ---
 
 ## 12. Scheduled work
 
-| Job | Cadence | Why |
-|---|---|---|
-| **Overdue sweeper** | Hourly | Flip `pending`/`atrisk` → `missed` once `real_date < today` in project timezone. **The system cannot report reality without this** — today nothing ever becomes missed on its own |
-| Idempotency-key reaper | Daily | Delete keys older than 24h |
-| Outbox monitor | 5 min | Alert on event publications incomplete for >10 min |
-| Read-model refresh | Nightly | If the exec S-curve becomes a materialized view |
+| Job | Cadence | Status | Why |
+|---|---|---|---|
+| **Status sweeper** | Hourly (`0 5 * * * *`) | ✅ built | Moves status in **both** directions — `→ missed` once `real_date < today`, `→ atrisk` past the amber threshold, and back to `pending` on recovery. The system cannot report reality without it (§5) |
+| Idempotency-key reaper | Hourly, same tick | ✅ built | Folded into the sweeper rather than given its own schedule and its own lock — one job, one lock, one thing to be told about when it stops |
+| Outbox monitor | 5 min | ⚠️ n/a | There is no outbox (§11) |
+| Read-model refresh | Nightly | ⚠️ not needed | The S-curve is computed live from `milestone_view`; no materialized view yet earns its refresh |
 
 Multiple replicas run the same scheduler, so **jobs must be locked**:
 
 ```java
 @Scheduled(cron = "0 5 * * * *")
-@SchedulerLock(name = "overdue-sweeper", lockAtMostFor = "10m", lockAtLeastFor = "1m")
-void sweepOverdue() { ... }                       // ShedLock, backed by Postgres
+@SchedulerLock(name = "milestone-status-sweep", lockAtMostFor = "PT10M", lockAtLeastFor = "PT30S")
+void sweep() { ... }                              // ✅ ShedLock 7.9.0, backed by Postgres (V5)
 ```
 
 ⚠️ **Container Apps scale-to-zero kills all of this.** With `minReplicas: 0` there is no process to run the sweeper or drain the outbox. Either keep `minReplicas: 1` in production (the plan's assumption) or move background work into a separate Container Apps **job** on a cron trigger. Decide deliberately; the failure is silent.
@@ -887,31 +1002,44 @@ Profiles: `local` (compose + Flyway on + sample data), `dev`, `prod`. **No secre
 
 ## 15. Testing
 
-| Layer | Tool | Target |
+✅ **Reconciled 2026-09-07: 17 test classes, ~170 test methods, none disabled.**
+
+⚠️ **The most important fact about testing here is not in the table below: there is no JVM
+on the development machine.** Every backend change is a hypothesis until CI answers. That is
+not a footnote — it shapes what a good test is on this project. A test whose failure message
+does not explain itself is nearly useless, because the person reading it cannot attach a
+debugger, add a print statement, or re-run it in isolation for another twenty minutes. The
+practical rules that came out of it:
+
+- **Assert on the reason, not the symptom.** A migration mistake once turned into 60 red
+  tests with one root cause, and the fastest route to the cause was the one test that named
+  the constraint rather than the count.
+- **A failing build should be readable in the log.** No test depends on inspecting state that
+  is only visible in a debugger.
+
+| Layer | Tool | As built |
 |---|---|---|
-| **Domain unit** | JUnit 5 + AssertJ | `WorkingDayCalculator` (holidays, year boundaries, negative spans, 6-day weeks), `RagPolicy`, `StatusPolicy`. **Highest value in the codebase** — these numbers drive every executive decision |
-| Aggregate | JUnit 5, no Spring | `Milestone` invariants: reason required, done-locked, justification required |
-| Module | `@ApplicationModuleTest` | Boots one module with the rest stubbed; verifies published events |
-| Persistence | `@DataJpaTest` + Testcontainers `@ServiceConnection` | Real Postgres. Recursive CTE, cycle handling, `REVOKE` actually blocking an audit `UPDATE` |
-| Web slice | `@WebMvcTest` + `@MockitoBean` | Status codes, ProblemDetail shape, ETag/`If-Match`, **403 denial cases** |
-| Full integration | `@SpringBootTest` + Testcontainers | The whole change-real-date flow incl. audit + event publication |
-| Architecture | `MODULES.verify()` + ArchUnit | Boundaries; "no controller touches a repository"; "no `internal` type in a public signature" |
-| Contract | openapi-generator diff in CI | Backend change that breaks the Angular client fails CI |
-| E2E | Playwright | Reuse the existing driver against a real API |
-| Load | k6 | 5,000-milestone dashboard, 50 concurrent field writes |
+| **Calendar and RAG** | JUnit 5 + **Testcontainers** | `BizDaysTest`, `RagDerivationTest`. **Highest value in the codebase** — these numbers drive every executive decision |
+| Write-path invariants | `@SpringBootTest` + Testcontainers | `MilestoneWritePathTest`, `MilestoneCrudTest`, `ReasonCatalogueTest`: reason required, done-locked, justification required, `requires_note` honoured |
+| Read path | same | `MilestoneReadPathTest`, `MilestoneDetailTest`, `ImpactAndSummaryTest` — the recursive CTE, cycle handling, `?owner=me` pruning |
+| Evidence & position | same | `EvidenceTest` (incl. **foreign-evidence rejection**), `CapturedPositionTest` |
+| Scheduled work | same | `StatusSweeperTest` — both directions, including recovery |
+| Audit immutability | same | `AuditImmutabilityTest` — `REVOKE` actually blocking an `UPDATE`, proven against real Postgres |
+| Architecture | `MODULES.verify()` + ArchUnit | `ModularityTest`, `ArchitectureRulesTest` — boundaries, no dependency on `..internal..`, and the **variance/RAG name ban** |
+| Contract | `OpenApiContractTest` | The served spec must equal the committed `api/openapi.json`. A backend change that breaks a client fails the build |
+| Load | k6 | ⚠️ not built |
+
+⚠️ **`@DataJpaTest` and "aggregate tests with no Spring" do not appear, and cannot.** With the
+domain logic in SQL (§6), **15 of the 17 test classes need a real Postgres** — they extend
+`AbstractPostgresTest`, which holds one `static` container shared across the whole JVM run.
+This is the bill for the view: a rule that can only be expressed in the database can only be
+tested against a database, and the fast, dependency-free unit test the design imagined is not
+available at any price. The container is shared rather than per-class because that bill is
+paid on every CI run, and per-class startup would have added minutes to the only compiler
+this project has.
 
 ```java
-@SpringBootTest
-@Testcontainers
-class ChangeRealDateIntegrationTest {
-
-  @Container @ServiceConnection
-  static PostgreSQLContainer<?> db = new PostgreSQLContainer<>("postgres:17");
-
-  @Test void appendsAuditRowAndPublishesEventAtomically() { /* ... */ }
-
-  @Test void rejectsSecondDeliveryOfTheSameIdempotencyKey() { /* ... */ }
-
+class AuditImmutabilityTest extends AbstractPostgresTest {
   @Test void auditRowCannotBeUpdated() {
     assertThatThrownBy(() -> jdbc.sql("UPDATE milestone_log SET note='tampered'").update())
         .isInstanceOf(DataAccessException.class);       // DB grant, not app code
@@ -919,59 +1047,79 @@ class ChangeRealDateIntegrationTest {
 }
 ```
 
-**Coverage targets:** 90%+ on `schedule` and `catalog` domain classes; ~60% overall is fine. Do not chase a number on controllers.
+**Coverage targets:** 90%+ on `schedule` and `catalog`; ~60% overall is fine. Do not chase a
+number on controllers.
 
 ---
 
 ## 16. Build and packaging
 
-```kotlin
-// build.gradle.kts
-plugins {
-  java
-  id("org.springframework.boot") version "4.1.0"
-  id("io.spring.dependency-management") version "1.1.7"
-}
+✅ **Reconciled 2026-09-07. It is Maven, not Gradle**, and the dependency list below is the
+one that resolves. The switch was not ideological: the pipeline needed a build whose exact
+dependency resolution could be read off a single file by a human reviewing a CI failure, and
+on a project where **CI is the only compiler that exists** (no JVM on the development laptop
+— see §15) the ability to read a build without running it is worth more than Kotlin DSL.
 
-java { toolchain { languageVersion = JavaLanguageVersion.of(25) } }
+```xml
+<parent>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-parent</artifactId>
+  <version>4.0.5</version>
+</parent>
 
-dependencies {
-  implementation("org.springframework.boot:spring-boot-starter-web")
-  implementation("org.springframework.boot:spring-boot-starter-data-jpa")
-  implementation("org.springframework.boot:spring-boot-starter-security")
-  implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
-  implementation("org.springframework.boot:spring-boot-starter-validation")
-  implementation("org.springframework.boot:spring-boot-starter-actuator")
-  implementation("org.springframework.boot:spring-boot-starter-cache")
+<properties>
+  <java.version>21</java.version>
+  <spring-cloud.version>2025.1.1</spring-cloud.version>
+  <spring-modulith.version>2.0.7</spring-modulith.version>
+  <testcontainers.version>2.0.4</testcontainers.version>
+  <springdoc.version>3.1.0</springdoc.version>
+  <shedlock.version>7.9.0</shedlock.version>
+  <archunit.version>1.5.0</archunit.version>
+  <azure-storage.version>12.31.2</azure-storage.version>
+</properties>
 
-  implementation(platform("org.springframework.modulith:spring-modulith-bom:2.1.0"))
-  implementation("org.springframework.modulith:spring-modulith-starter-jpa")
-  implementation("org.springframework.modulith:spring-modulith-events-api")
+<!-- runtime -->
+spring-boot-starter-web
+spring-boot-starter-jdbc              <!-- ⚠️ not data-jpa; see §6 -->
+spring-boot-starter-validation
+spring-boot-starter-actuator
+spring-boot-starter-oauth2-resource-server
+spring-cloud-starter-netflix-eureka-client
+spring-boot-flyway + flyway-database-postgresql
+org.postgresql:postgresql
+spring-modulith-starter-core          <!-- ⚠️ not starter-jpa: no outbox (§11) -->
+springdoc-openapi-starter-webmvc-api  <!-- ⚠️ -api, not -ui: no Swagger UI in the image -->
+shedlock-spring + shedlock-provider-jdbc-template
+com.azure:azure-storage-blob
 
-  implementation("com.azure:azure-messaging-webpubsub:1.5.0")
-  implementation("com.azure.spring:spring-cloud-azure-starter-keyvault-secrets")
-  implementation("com.github.ben-manes.caffeine:caffeine")
-  implementation("net.javacrumbs.shedlock:shedlock-spring")
-  implementation("org.flywaydb:flyway-database-postgresql")
-  implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0")
-  runtimeOnly("org.postgresql:postgresql")
-
-  testImplementation("org.springframework.boot:spring-boot-starter-test")
-  testImplementation("org.springframework.security:spring-security-test")
-  testImplementation("org.springframework.modulith:spring-modulith-starter-test")
-  testImplementation("org.testcontainers:postgresql")
-  testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
-}
-
-tasks.named<BootBuildImage>("bootBuildImage") {
-  imageName = "mcprodacr.azurecr.io/milestone-command-api:${project.version}"
-  environment = mapOf("BP_JVM_VERSION" to "25", "BP_SPRING_AOT_ENABLED" to "true")
-}
+<!-- test -->
+spring-boot-starter-test, spring-boot-testcontainers,
+testcontainers-postgresql, testcontainers-junit-jupiter,
+spring-modulith-starter-test, com.tngtech.archunit:archunit
 ```
 
-**Image:** Paketo buildpacks via `bootBuildImage` — reproducible, non-root, SBOM included, no Dockerfile to maintain.
+**Five deliberate differences from the design, each with a reason:**
 
-**Startup: use CDS / the JDK AOT cache, not GraalVM native.** Native image cuts startup to ~50 ms but costs multi-minute builds and constant reflection friction with Hibernate. With `minReplicas: 1` (which §12 requires anyway for scheduled work), cold start is not on the critical path. AOT + CDS gets JVM startup under a second for a fraction of the complexity. Revisit native only if you later move background work to jobs and scale the API to zero.
+| Designed | Built | Why |
+|---|---|---|
+| Java 25 LTS | **21** | The runners' JDK. Nothing in the code wants 25; pinning to what CI has removes a class of "works in the design" failure |
+| `starter-data-jpa` | **`starter-jdbc`** | §6 — there is no ORM |
+| `modulith-starter-jpa` | **`starter-core`** | The JPA starter exists to provide the event publication registry. §11 is unbuilt, so the starter would have created an outbox table nothing writes to |
+| `springdoc …-ui` | **`…-api`** | The generated spec is the contract and is committed as `api/openapi.json`; Swagger UI in a production image is an extra attack surface for a page nobody opens there |
+| `azure-messaging-webpubsub` | **absent** | §11 is unbuilt. `azure-storage-blob` is here instead, for evidence bytes |
+
+⚠️ **The OpenAPI baseline is generated, never hand-written.** `OpenApiContractTest` fails the
+build when the served spec drifts from the committed one. Hand-patching that file to make the
+test pass repeatedly failed on springdoc details no human predicts — the working method is to
+take the spec from the CI artifact and commit it wholesale.
+
+**Image:** Paketo buildpacks via `spring-boot:build-image` — reproducible, non-root, SBOM
+included, no Dockerfile to maintain.
+
+**Startup: use CDS / the JDK AOT cache, not GraalVM native.** Native image cuts startup to
+~50 ms but costs multi-minute builds and constant reflection friction. With `minReplicas: 1`
+(which §12 requires anyway for scheduled work), cold start is not on the critical path.
+Revisit native only if background work moves to jobs and the API scales to zero.
 
 ---
 
@@ -1022,7 +1170,7 @@ properties:
 
 **Indexes that matter:** `milestone(project_id) WHERE deleted_at IS NULL`, `milestone(work_package_id)`, `milestone_dependency(predecessor_id)` and `(successor_id)`, `milestone_log(milestone_id, created_at DESC)`, `activity_event(project_id, created_at DESC)`.
 
-**The N+1 to watch:** rendering the PM tree touches phase → work package → milestone → owner. Fetch it as one flat projection and assemble the tree in the API, not with JPA associations.
+**The N+1 to watch:** rendering the PM tree touches phase → work package → milestone → owner. ✅ Built as one flat projection assembled into a tree in the service — there are no JPA associations to fall into.
 
 **Known front-end ceiling:** the PM tree renders every row unvirtualized. The API can serve 5,000 milestones long before the browser can paint them — load-test both ends (see the deployment plan §14).
 
@@ -1046,27 +1194,43 @@ The infrastructure this requires — Service Bus, a database per service, distri
 
 ## 20. Work breakdown
 
-| # | Deliverable | Est. | Depends on |
-|---|---|---|---|
-| B1 | Repo, Gradle, Boot 4.1 skeleton, compose, CI build | 3 d | — |
-| B2 | Flyway baseline (all tables, views, grants, triggers) | 4 d | B1 |
-| B3 | `shared` + `identity` (Entra JWT, JIT provisioning, roles) | 5 d | B2 |
-| B4 | `schedule` (work calendar, `bizDays`, RAG policy) **+ full unit suite** | 4 d | B2 |
-| B5 | `catalog` read path + `/milestones`, `/summary` | 6 d | B3, B4 |
-| B6 | `catalog` write path + `audit` (real-date, mark-done, CRUD) | 8 d | B5 |
-| B7 | Optimistic concurrency (ETag/`If-Match`) + idempotency | 4 d | B6 |
-| B8 | `rebaseline` + role gating + immutability tests | 3 d | B6 |
-| B9 | `impact` (recursive CTE, cycle guard) | 3 d | B5 |
-| B10 | `activity` + notification read state | 3 d | B6 |
-| B11 | `notification` (outbox → Web PubSub) + `/realtime/token` | 4 d | B10 |
-| B12 | `template` + instantiate-project | 5 d | B6 |
-| B13 | Scheduled jobs + ShedLock | 2 d | B6 |
-| B14 | Observability, caching, resilience, rate limiting | 4 d | B6 |
-| B15 | OpenAPI → TypeScript client generation in CI | 2 d | B6 |
-| B16 | Container Apps deploy, probes, migration job, runbook | 4 d | B1–B14 |
-| | **Total** | **≈ 60 dev-days (12 weeks solo, ~7 with two backend devs)** | |
+✅ **Reconciled against the code and `sprint-plan.md` on 2026-09-07** — twelve sprints closed.
+The estimates are left as written so the plan can be judged rather than quietly improved.
 
-Front-end integration work runs in parallel from B5 onward — see [`azure-deployment-plan.md` §6](./azure-deployment-plan.md#6-frontend-changes-required).
+| # | Deliverable | Est. | Status |
+|---|---|---|---|
+| B1 | Repo, build, Boot skeleton, compose, CI build | 3 d | ✅ **built** — Maven, not Gradle (§16) |
+| B2 | Flyway baseline (tables, views, grants, triggers) | 4 d | ✅ **built** — grew to nine migrations (§6) |
+| B3 | `shared` + `identity` (Entra JWT, JIT provisioning, roles) | 5 d | ⚠️ **half** — JWT validation and roles are in `SecurityConfig`; **JIT provisioning is not built** and there is no identity service. A user row exists only if seeded |
+| B4 | `schedule` (work calendar, `bizDays`, RAG) + unit suite | 4 d | ✅ **built** — in SQL, tested against real Postgres (§15) |
+| B5 | `catalog` read path + `/milestones`, `/summary` | 6 d | ✅ **built**, plus `?owner=me` pruning, which was not in the plan |
+| B6 | `catalog` write path + `audit` | 8 d | ✅ **built** — without `mark-done`, which collapsed into `real-date` (§8) |
+| B7 | Optimistic concurrency + idempotency | 4 d | ✅ **built** — `If-Match` **mandatory**, 428 without it |
+| B8 | `rebaseline` + role gating + immutability tests | 3 d | ✅ **built** |
+| B9 | `impact` (recursive CTE, cycle guard) | 3 d | ✅ **built** — with a stronger guard than the plan specified (§6) |
+| B10 | `activity` + notification read state | 3 d | ⚠️ **not started** — Sprint 13 |
+| B11 | `notification` (outbox → Web PubSub) + `/realtime/token` | 4 d | ⚠️ **not started** (§11) |
+| B12 | `template` + instantiate-project | 5 d | ⚠️ **not started** |
+| B13 | Scheduled jobs + ShedLock | 2 d | ✅ **built** — one job, hourly, both directions (§12) |
+| B14 | Observability, caching, resilience, rate limiting | 4 d | ⚠️ **not started.** Actuator is on; there is no cache, no rate limit, no circuit breaker anywhere in the service or the gateway |
+| B15 | OpenAPI → TypeScript client generation in CI | 2 d | ⚠️ **deliberately not done** — no `mc-api-client` exists; the two front ends declare their own wire types. See `platform-architecture.md` §0b for why that is a decision and not an omission |
+| B16 | Container Apps deploy, probes, migration job, runbook | 4 d | ⚠️ **not started** — nothing is deployed to Azure. Every environment so far is a container on a laptop or in CI |
+| | **Total** | **≈60 dev-days** | **≈35 days’ worth delivered; the remaining 25 are the four items that need a second service or a cloud account** |
+
+**Two things this table is worth reading for.**
+
+First, **the estimate was not badly wrong about the parts that got built**, and was wrong in
+an interesting way about the parts that did not: B10–B12, B14–B16 are precisely the items whose
+cost is *not* code. They need an Azure subscription, a second deployable service, or a
+published client package — organisational facts, not engineering ones. An estimate in
+dev-days silently assumes those exist.
+
+Second, **B14 being unstarted is the largest genuine risk in this document.** Caching,
+rate limiting and circuit-breaking are absent, and the system currently survives that only
+because its entire load is one developer and a CI job. The first real site would find it.
+
+Front-end integration work runs in parallel from B5 onward — see
+[`azure-deployment-plan.md` §6](./azure-deployment-plan.md#6-frontend-changes-required).
 
 ---
 

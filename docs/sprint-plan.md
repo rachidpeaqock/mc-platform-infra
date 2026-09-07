@@ -1618,6 +1618,58 @@ Then Sprint 1 — extracting the design system needs no backend, no Azure, and n
 
 ---
 
+## Between sprints · 2026-09-07 — the documents reconciled against the code
+
+No sprint work. The four planning documents were checked line by line against what twelve
+sprints actually built, and annotated rather than rewritten — ✅ where the code matches, ⚠️
+where it does not, with the reason for each difference. The discarded option is usually the
+more useful half of the record, so nothing was quietly corrected into looking right.
+
+| Document | State |
+|---|---|
+| `platform-architecture.md` | Reconciled. New §0a as-built table, §0b **three** named gaps, §10a object storage, §9 version-gate reasoning, §4b corrected (the web build exists) |
+| `backend-architecture.md` | Reconciled end to end — §1, §2, §5, §6, §8, §10, §11, §12, §15, §16, §20 |
+| `azure-deployment-plan.md` | Reconciled — §2 delta table, §4 migrations, §10 resources, §11 cost, §13 roadmap scored, §16 decisions scored |
+| `concept-v5.md`, `competitive-landscape.md` | Written 2026-09-06 |
+
+**Four things the reconciliation found that the code alone did not say.**
+
+**⚠️ A new defect: both front ends hardcode the RAG thresholds.** `THRESHOLDS = { amber: 3,
+red: 10 }` is a module constant in `mc-field` and `mc-dashboards`, used to preview a date's
+colour before the user commits. The server sends `amberThreshold` and `redThreshold` on every
+project tree and **neither client reads them**. Any project not on 3/10 sees a preview that
+disagrees with the server, on the one screen whose job is to show how bad a slip is. It
+survived twelve sprints because **the verification fixture also uses 3 and 10** — the same
+shape as the `yearMarks` defect in Sprint 11. A fixture that shares a constant with the code
+cannot test that constant. **This is the fifth time a client re-implemented a rule the server
+owns**, and the first one the cross-sprint risk register did not catch — because the audit
+looks for *logic* a client should not have, and this is logic the client legitimately has,
+fed the wrong number.
+
+**⚠️ The endpoint catalogue was materially wrong.** It documented four paths that do not exist
+(`POST /projects/{p}/milestones`, `/mark-done`, `/log`, `/rebaselines`) and omitted eight that
+do, including all of evidence and the whole calendar. It also had the prefix wrong: `/api`,
+not `/api/v1`. Anyone integrating from that document would have failed on their first call.
+
+**✅ The impact query is better than its design, and the design was subtly wrong.** The plan
+specified `UNION` plus a depth guard for cycle protection. `UNION` de-duplicates whole rows,
+and the rows carry a depth — so a cycle produces distinct rows and walks until the depth
+limit, doing exponential work first. The built version carries a path array and refuses to
+re-enter a node. The document now says so, because the plausible-but-wrong version is the one
+someone would otherwise reintroduce.
+
+**⚠️ The cost estimate's stability was a coincidence.** Prod moved from ~€140 to ~€125–160
+only because dropping the unbuilt Web PubSub (−€45) nearly cancelled the extra container apps
+the service split requires (+€45–70). Build real-time in Sprint 13 as planned and it goes to
+**€170–205**. That is the figure to quote when anyone asks whether decomposition paid.
+
+One more thing worth stating plainly: **Phase 5 (real-time) was estimated at one week and has
+sat untouched at the top of the backlog for twelve sprints without anyone needing it.** Clients
+refetch and nobody has complained. That is the best evidence available that it is a feature to
+sell rather than a feature to run on, and Sprint 13 should scope it in that light.
+
+---
+
 ## Where things actually stand · 2026-09-06 (end of Sprint 12)
 
 **Sprints 0–12 complete. Epic E4 is finished bar shipping.** A crew lead can record an update with

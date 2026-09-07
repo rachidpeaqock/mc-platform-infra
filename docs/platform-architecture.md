@@ -4,13 +4,69 @@
 
 Its first three consumers are two web apps and a native mobile app. It is designed so the fourth, fifth and sixth cost almost nothing to add — see [§0](#0-design-stance--this-is-a-platform-not-an-app).
 
-**Status:** design · **Written:** 2026-08-15 · **Supersedes** the single-repo / modular-monolith assumption in [`azure-deployment-plan.md`](./azure-deployment-plan.md) and [`backend-architecture.md`](./backend-architecture.md), which remain valid on every other subject (domain model, endpoints, security, Spring idioms, DB schema).
+**Status:** partly built · **Written:** 2026-08-15 · **Last reconciled against the code:** 2026-09-07 (end of Sprint 12) · **Supersedes** the single-repo / modular-monolith assumption in [`azure-deployment-plan.md`](./azure-deployment-plan.md) and [`backend-architecture.md`](./backend-architecture.md), which remain valid on every other subject (domain model, endpoints, security, Spring idioms, DB schema).
+
+> ⚠️ **This document is a design that is now half-implemented, and the two disagree in places.**
+> §0a below is the reconciliation — what exists, what does not, and where the built thing departed
+> from the plan on purpose. Sections not marked otherwise are still design.
+
+---
+
+## 0a. As built · end of Sprint 12
+
+Twelve sprints. What this document describes, against what is running.
+
+| | Designed | Built |
+|---|---|---|
+| **Front ends** | 4 (shell, dashboards, templates, field) | ✅ all four, Angular 20 + shared design system |
+| **Backend services** | 6 domain services + gateway + registry | ✅ `milestone`, `api-gateway`, `discovery` · ⬜ `activity`, `template`, `identity`, `ai`, `integration` |
+| **Gateway + Eureka** | §8a | ✅ routing by `lb://`, Entra validation at the edge |
+| **Event backbone (Kafka)** | §8b | ⬜ nothing produces an event yet. Sprint 13 |
+| **Real-time fan-out** | Web PubSub | ⬜ Sprint 14 |
+| **`mc-api-client`** | §3, generated from OpenAPI | ⬜ **not built.** Wire types are hand-written in `mc-dashboards` and `mc-field` — two copies, pinned by the contract test so they can only drift deliberately. See §0b |
+| **Contract pinning** | §8f | ✅ `api/openapi.json` committed and diffed by a test; the API is at **2.5.0** |
+| **Fitness functions** | §8e | ✅ Modulith + ArchUnit; the "one definition of the numbers" rule is enforced by the build |
+| **Object storage for evidence** | **not designed at all** | ✅ **built.** See §10a |
+| **Distributed tracing** | §9, mandatory | ⬜ App Insights exists, instrumentation does not. Sprint 17 |
+| **Contract testing between services** | §9 | ⬜ moot — there is only one domain service so far |
+| **Multi-tenancy** | assumed throughout | ⚠️ **not built.** There is no `tenant_id` anywhere in the schema. See §0b |
+
+### 0b. Three gaps worth naming rather than discovering
+
+**⚠️ There is no `tenant_id`.** Every document in this repo assumes multi-tenant isolation; the
+schema has none, because the platform runs one project for one organisation and an isolation column
+added before there is a second tenant is speculative. **It must be settled before customer two, not
+after** — either a `tenant_id` on every table with row-level security, or a database per tenant. It
+is a schema change, and schema changes get harder with every row.
+
+**`mc-api-client` does not exist, and the wire types are duplicated by choice.** §3 lists a generated
+client package. Two hand-written copies of the response types exist instead, one per consuming app.
+That is deliberate for now — a shared package means a release cycle and a version bump every time a
+field is added, which is the lockstep coupling §8e argues against — and it stops being deliberate at
+the third consumer. The contract test makes the duplication safe in the meantime: the spec cannot
+change without somebody committing the new one.
+
+**⚠️ Both front ends hardcode the RAG thresholds, and the server sends the real ones.**
+`THRESHOLDS = { amber: 3, red: 10 }` is a module constant in `mc-field/src/app/core/data.ts`
+and again in `mc-dashboards`, used by the reason modal and by Field's live preview to colour
+a date *before* the user commits to it. The project tree response carries `amberThreshold`
+and `redThreshold`; neither client reads them. For any project not on 3/10 the preview
+disagrees with the server on the one screen built to show how bad a slip is.
+
+It is a small fix — pass the project's thresholds instead of defaulting the parameter — and
+it is listed here because of *why it survived twelve sprints*: the verification fixture uses
+3 and 10, so the harness agrees with the bug. That is the same shape as the `yearMarks`
+defect in Sprint 11 and the reason the harness now moves dates on the stub rather than
+asserting against a frozen one. **A fixture that shares a constant with the code cannot test
+that constant** — worth generalising before the next one.
 
 ---
 
 ## Contents
 
 0. [**Design stance — this is a platform, not an app**](#0-design-stance--this-is-a-platform-not-an-app)
+    - [0a. **As built** · end of Sprint 12](#0a-as-built--end-of-sprint-12)
+    - [0b. Three gaps worth naming rather than discovering](#0b-three-gaps-worth-naming-rather-than-discovering)
 1. [The decision](#1-the-decision)
 2. [Frontend split ≠ backend split](#2-frontend-split--backend-split)
 3. [Repository map](#3-repository-map)
@@ -27,6 +83,7 @@ Its first three consumers are two web apps and a native mobile app. It is design
    - [8f. Platform mechanics — how new consumers arrive](#8f-platform-mechanics--how-new-consumers-arrive)
 9. [Cross-cutting concerns in a distributed system](#9-cross-cutting-concerns-in-a-distributed-system)
 10. [Infrastructure delta](#10-infrastructure-delta)
+    - [10a. Object storage — evidence bytes](#10a-object-storage--evidence-bytes)
 11. [Recalculated cost](#11-recalculated-cost)
 12. [Recalculated timeline](#12-recalculated-timeline)
 13. [Risks](#13-risks)
@@ -218,7 +275,18 @@ One Entra **app registration**, three redirect URIs. MSAL acquires tokens silent
 
 ## 4b. The Field app is a native mobile app
 
-**`mc-field` ships to iOS and Android only. There is no web build.** That makes its own repo mandatory rather than merely tidy — it has a different runtime, a different release process, a different CI shape, and a different set of stores to answer to.
+**`mc-field` ships to iOS and Android.** That makes its own repo mandatory rather than merely tidy — it has a different runtime, a different release process, a different CI shape, and a different set of stores to answer to.
+
+> ⚠️ **Corrected 2026-09-07.** This section originally read *"There is no web build."* There is
+> one, and it matters: it is compiled on every push, and `npm run verify` drives the real components
+> in a browser against a stub of the API — 65 assertions covering the list, the write path, the
+> offline queue, a lost race and the version gate. It is not shipped to anybody; it exists because
+> **it was the only way to compile-check or exercise this code at all** while Apple enrolment was
+> deferred, and it stayed because it turned out to catch things review does not.
+>
+> The distinction that must not blur: a green web build means *"this compiles and its logic holds"*,
+> **not** *"this works on a phone"*. Nothing behind a Capacitor plugin — camera, GPS, the privacy
+> cover — is exercised by it.
 
 ### Stack: Ionic + Angular + Capacitor 8
 
@@ -324,7 +392,7 @@ The design system becomes a shared dependency of four repos, which is where micr
 | **identity-service** | `app_user` `user_project_role` | Read-mostly, cached everywhere, changes rarely | 0 |
 | *later* **integration-service** | `integration_run` `external_ref` | Camel 4.20, external cadence, batch-shaped | 0 (cron job) |
 
-Each service keeps the internal structure described in [`backend-architecture.md`](./backend-architecture.md) — Spring Boot 4.1, Java 25, modules inside, aggregate-owned invariants. `milestone-service` is roughly 70% of the total backend work and inherits most of that document unchanged.
+Each service keeps the internal structure described in [`backend-architecture.md`](./backend-architecture.md) — Spring Boot 4.0.5, Java 21, Maven, modules inside. ⚠️ **"Aggregate-owned invariants" did not survive**: there is no aggregate class, and the write-path checks live in `MilestoneService` with the database as the backstop ([backend §5](./backend-architecture.md#5-domain-model-and-invariants)). `milestone-service` is roughly 70% of the total backend work and, as of Sprint 12, is the only domain service that exists.
 
 **Database topology:** one PostgreSQL Flexible Server, **one database per service**, one login per service with no cross-database grants. This gives real schema isolation at a quarter of the cost of four servers. It is a deliberate, reversible compromise — if a service ever needs its own scaling or availability profile, it moves to its own server without an application change.
 
@@ -690,6 +758,31 @@ These stop being optional the moment there is more than one service.
 | **Token propagation** | The user's token flows service-to-service; no service trusts a claimed identity in a body |
 | **Health & readiness** | Per service, and the gateway must not route to a service failing readiness |
 | **Schema change discipline** | Expand/contract migrations only. No service may assume another deployed simultaneously |
+| **Minimum client version** | ✅ **Built (MC-405).** A client sends `X-Client-Version: name/semver`; the gateway answers `426 Upgrade Required` below a configured floor. See below — it is the one edge check that is *not* also a per-service check, and the reason why |
+
+### ⚠️ The version gate lives at the edge, and §7's rule says checks do not
+
+This platform holds firmly that **a gateway is a router, not a network boundary** — every service
+validates its own token, because anything already inside the platform can reach a service directly.
+The minimum-version gate breaks that rule on purpose, and the justification is that the threat model
+is inverted:
+
+| | Authorization | Version gating |
+|---|---|---|
+| Defends against | A caller who wants in | A client that is outdated but **honest** |
+| Can it bypass the gateway? | Yes — services answer on their own ports | No — the gateway URL is the only address it was ever given |
+| So the check belongs | In every service | At the edge |
+
+An attacker can send any version string they like; that is fine, because they could send none, and
+this gate is not what stops them. It stops a phone in a pocket in the wrong year — which matters
+because **a native app cannot be force-updated**, and an `mc-field` binary runs until somebody
+chooses to replace it.
+
+It is deliberately permissive in four places, each of which would otherwise turn a safety feature
+into an outage: no header passes (the web apps send none), an unknown client name passes (§8f's whole
+claim is that a new consumer needs no core change), a malformed header passes, and anything outside
+`/api/` passes — the last because a gate that answered 426 to `/actuator/health` would crash-loop the
+gateway the moment anybody configured a floor.
 
 ---
 
@@ -707,8 +800,44 @@ Added relative to the monolith plan:
 | PostgreSQL | Same server, 4 databases | €0 |
 | Container Registry | Same registry, 4 repositories | €0 |
 | App Insights | 4× telemetry volume | +€15 |
+| **Storage Account (Blob, LRS)** | **Evidence photographs — §10a.** Not in the original plan | **+€2–5** at pilot volume; grows with photographs, not with users |
 
 Unchanged: Key Vault, Entra ID, Web PubSub, PostgreSQL SKU.
+
+---
+
+## 10a. Object storage — evidence bytes
+
+**Added in Sprint 12, and designed in no document before this one.** MC-421/MC-424 attach a
+photograph to a slip, which introduced the platform's first non-relational store.
+
+| | |
+|---|---|
+| **What** | Azure Blob Storage, one container, one blob per photograph |
+| **Who writes** | `milestone-service` only. The bytes are proxied through the service rather than uploaded direct-to-blob with a SAS |
+| **What Postgres holds** | Metadata and a SHA-256 digest. **Never the bytes** |
+| **Naming** | `{milestoneId}/{evidenceId}.{ext}`, generated server-side |
+
+**⚠️ The bytes are not in Postgres, and that is a backup decision rather than a storage one.**
+Photographs there would put megabytes into every backup and every restore of a database whose entire
+value is a few hundred kilobytes of dates and reasons — and the restore drill (§13, Sprint 23) is
+exactly what would suffer, at the worst possible moment.
+
+**⚠️ The digest is re-checked on every read**, not merely recorded. An evidence store whose
+contents can change without anybody noticing is not evidence, and the read is the only place that
+would ever find out.
+
+**Proxied, not direct-to-blob, and this is the decision to revisit first.** Uploading through the
+service puts a hard ceiling on what one request can cost and keeps authorization in one place; it
+also means every megabyte crosses the service. That is right at photograph scale and wrong the day
+evidence means video — at which point the answer is a short-lived SAS and a direct upload, and this
+paragraph is the note that says so.
+
+**Authorization is the same rule as changing the date**, deliberately: uploading evidence against
+somebody else's milestone is the first half of forging their audit trail, so it would be strange to
+guard the entry and leave the attachment open. The service additionally refuses an evidence id that
+belongs to a *different* milestone — the foreign key alone permits that, and only a domain check can
+refuse it.
 
 ---
 
@@ -842,5 +971,5 @@ Time is not the constraint (§0), so these phases are ordered by **architectural
 
 ## Related documents
 
-- [`backend-architecture.md`](./backend-architecture.md) — Spring Boot 4.1 internals; applies to each service. §1 and §19 are superseded by this document
+- [`backend-architecture.md`](./backend-architecture.md) — backend internals, reconciled against the built service on 2026-09-07. §1 and §19 are superseded by this document
 - [`azure-deployment-plan.md`](./azure-deployment-plan.md) — DB schema (§4), endpoint contract (§5), working-day calendar (§8), concurrency & offline (§9); topology and cost superseded by this document

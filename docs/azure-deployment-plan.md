@@ -1,10 +1,15 @@
 # Milestone Command — Azure Deployment Plan
 
-**Status:** planning · **Written:** 2026-08-14 · **Repo:** `rachidpeaqock/stones-angular` (`main`)
+**Status:** planning · **Written:** 2026-08-14 · **Last reconciled against the code:** 2026-09-07
+
+> ⚠️ **Nothing in this plan has been deployed.** No Azure subscription is in use, no resource
+> in §10 exists, and no cost in §11 has been incurred. Twelve sprints of the system in §3 run
+> as containers on a laptop and in CI. Read this as a costed intention, not a description —
+> and note that §11 has never been tested against a bill.
 
 > **Superseded on topology, cost and roadmap** by [`platform-architecture.md`](./platform-architecture.md) (2026-08-15): the product is now three separate front-end apps in three repos over a microservices backend. **Still authoritative here:** the gap analysis (§2), database schema (§4), endpoint contract (§5), auth model (§7), the working-day calendar problem (§8), and concurrency/offline (§9) — none of which change with decomposition.
 >
-> **Backend internals:** [`backend-architecture.md`](./backend-architecture.md) — Spring Boot 4.1 design, applied per service.
+> **Backend internals:** [`backend-architecture.md`](./backend-architecture.md) — reconciled against the built service on 2026-09-07 (Boot 4.0.5, Java 21, Maven, `JdbcClient`).
 
 ---
 
@@ -33,7 +38,7 @@ Estimated run cost for a single production environment: **~€75–130/month** a
 
 ---
 
-## 2. What exists today (verified 2026-08-14)
+## 2. What existed on 2026-08-14 — ⚠️ superseded, kept as the baseline
 
 | Aspect | Current state |
 |---|---|
@@ -50,7 +55,32 @@ Estimated run cost for a single production environment: **~€75–130/month** a
 | Tests | **None** — no `test` target in `angular.json`, no spec files |
 | Multi-tenancy | None — a single `PROJECT` constant |
 
-The important consequence: **this is a static site.** It deploys to any CDN as-is, which makes Phase 0 (demo hosting) trivial and Phase 1+ (real backend) a genuine greenfield build.
+The important consequence at the time: **this was a static site.**
+
+### ✅ What changed by 2026-09-07 (twelve sprints)
+
+The header of this document called §2 "still authoritative". It is not, and the row-by-row
+delta is the most useful summary of the work that exists:
+
+| Aspect | 2026-08-14 | Now |
+|---|---|---|
+| Repos | one | **ten** — three front ends (Dashboards, Field, Templates), the shell, the design system, three back-end services, infra, concept |
+| State | `signal<StoreState>` over seed data | **The server owns state.** Clients hold a cache and refetch |
+| Persistence | `localStorage['mc.store.v1']` | **PostgreSQL 17**, nine migrations · IndexedDB outbox in Field for offline writes only |
+| "Live sync" | `BroadcastChannel` | ⚠️ **still nothing** — clients refetch; real-time is designed and unbuilt |
+| Data | 32 milestones hardcoded, frozen clock `AS_OF = '2026-06-06'` | Real rows; **the clock is real**, and status moves on an hourly sweep |
+| Auth | none, `by: 'You'` | **Entra JWT**, roles, row-level ownership. Actor comes from the token; the body's `by:` is ignored |
+| HTTP | none | Typed clients against a pinned OpenAPI contract |
+| Config | no `environments/` | Per-app environments, dev-token build for the harness |
+| Tests | **none** | ~170 backend tests · ArchUnit + Modulith fitness functions · a contract test · **a browser harness that drives both front ends in CI** |
+| Multi-tenancy | none | ⚠️ **still none** — see §4 |
+| Evidence | — | Camera capture, Blob storage, sha256, ownership-checked |
+
+Two rows deserve emphasis because they are the ones a reader will assume were fixed.
+**Real-time never got built**, and **multi-tenancy never got built** — both were listed as
+non-blocking in §1 and both stayed that way for twelve sprints, which is either good
+prioritisation or accumulated debt depending on whether the next customer arrives before
+Sprint 13 does.
 
 ---
 
@@ -103,7 +133,7 @@ flowchart TB
 | Concern | Choice | Rationale |
 |---|---|---|
 | SPA hosting | **Static Web Apps (Standard)** | Built for this exact artifact. Global CDN, free TLS, **a staging environment per pull request**, and a "linked backend" that proxies `/api/*` to Container Apps so the browser sees one origin — no CORS. |
-| API | **Container Apps** running **Spring Boot 4.1 / Java 25** | No VM to patch, holds a warm connection pool to Postgres, and revision-based rollback. Chosen over Functions because the domain logic benefits from a long-lived process. **Note:** production runs `minReplicas: 1`, not scale-to-zero — the scheduled overdue-sweeper and the event outbox need a live process ([backend §12](./backend-architecture.md#12-scheduled-work)). |
+| API | **Container Apps** running **Spring Boot 4.0.5 / Java 21** | No VM to patch, holds a warm connection pool to Postgres, and revision-based rollback. Chosen over Functions because the domain logic benefits from a long-lived process. **Note:** production runs `minReplicas: 1`, not scale-to-zero — the hourly status sweeper needs a live process ([backend §12](./backend-architecture.md#12-scheduled-work)). ⚠️ As built it is **three** container apps, not one — see §10. |
 | Database | **PostgreSQL Flexible Server** | Relational is the right shape (hierarchy + dependency graph + append-only audit). Postgres gives `jsonb` for event payloads, recursive CTEs for the downstream-impact walk, and cheap burstable tiers. Azure SQL is an equally valid pick if the team is .NET-first — see §16. |
 | Real-time | **Web PubSub** | Direct replacement for `BroadcastChannel`. Serverless WebSockets, one message per mutation, group-per-project fan-out. |
 | Identity | **Entra ID** | The users are employees of an EPC contractor and a client. App roles map cleanly onto the four audiences the UI already has. |
@@ -271,6 +301,26 @@ CREATE TABLE template_row (
 );
 ```
 
+### ✅ What the schema actually became — nine migrations, reconciled 2026-09-07
+
+The DDL above is `V1` in spirit. Eight migrations followed, and four of them changed the
+design rather than extending it:
+
+| | Migration | What changed, and why |
+|---|---|---|
+| `V2` | `derived.sql` | `biz_days()` + `milestone_view`. **The view is the product's central definition of "late"**, and an ArchUnit rule forbids any Java method from re-deriving it |
+| `V4`+`V7` | `reason_codes` | The delay-reason catalogue became **data**, including `requires_note`. The design hardcoded "reason `OTHER` needs a note"; a site whose Marine Access delays needed explaining could not be served without a deployment (MC-344) |
+| `V6` | `idempotency` | Required by the Field offline outbox (§9) — a replayed queue must not write twice |
+| `V8` | `capture_position` | Where the phone was standing when the date was recorded. **Not** a proof of presence — it is self-reported by the device and trivially spoofed; it is a lead, and the schema does not pretend otherwise |
+| `V9` | `evidence` | Metadata only — type, size, **sha256**, who, when. The bytes live in Blob storage (§10) |
+
+⚠️ **There is no `tenant_id`, anywhere.** The schema above is single-tenant and the built one
+still is. Every query filters by project, not by customer. This is survivable while the system
+has no customers and becomes a migration touching every table the moment it has two — see
+`platform-architecture.md` §0b.
+
+---
+
 ### Three rules the schema must enforce
 
 **1. The audit trail is immutable.** The whole product promise is "every Real-date change carries a reason, permanently". Enforce it in the database, not just the API:
@@ -295,7 +345,31 @@ FROM milestone m JOIN project p ON p.id = m.project_id
 WHERE m.deleted_at IS NULL;
 ```
 
-This is a direct port of `ragOf()` in [`core/data.ts:92`](../src/app/core/data.ts). Keep the client copy for optimistic UI, but the server value wins.
+✅ Built as `V2__derived.sql`, essentially unchanged — one of the few pieces of this plan that
+survived contact intact.
+
+⚠️ **"Keep the client copy for optimistic UI, but the server value wins" did not survive
+intact, and the gap is live.** Both front ends still carry `ragOf()` and use it to preview the
+colour while a user is picking a date — `reason-modal.component.ts` in Dashboards,
+`liveRag()` in Field. That much is fine and intended. What is **not** fine is that both call
+it with a module constant:
+
+```ts
+export const THRESHOLDS: Thresholds = { amber: 3, red: 10 };   // mc-field & mc-dashboards
+```
+
+The server sends `amberThreshold` and `redThreshold` on every project tree, **and neither
+client reads them.** So the preview is correct for a project whose thresholds happen to be
+3 and 10, and silently wrong for any other — showing amber where the server will say green,
+on the one screen whose entire job is to tell someone how bad the slip is before they commit
+to it. It is invisible in the verification harness because the fixture project uses 3 and 10,
+which is the same shape as the `yearMarks` defect recorded in Sprint 11: a hardcoded value
+that agrees with the fixture.
+
+The fix is small — pass the project's thresholds through instead of defaulting the parameter
+— and it is not yet done. Recorded here because a schema rule that the server honours and the
+client quietly reimplements is exactly the failure this section was written to prevent, and it
+came back on the other side of the wire.
 
 ---
 
@@ -408,16 +482,27 @@ Hence `work_calendar` + `calendar_holiday` in the schema and a server-side `biz_
 
 ## 10. Azure resources
 
-| Resource | SKU (prod) | Purpose |
-|---|---|---|
-| Static Web App | Standard | SPA hosting, CDN, TLS, PR previews, linked backend |
-| Container App + Environment | Consumption, 0.5 vCPU / 1 GiB, min 1 replica prod / 0 dev | API |
-| Container Registry | Basic | API images |
-| PostgreSQL Flexible Server | B2s (prod) / B1ms (dev), 32 GB, 7-day PITR | Database |
-| Web PubSub | Free (dev) / Standard S1 (prod) | WebSocket fan-out |
-| Key Vault | Standard | Secrets, accessed via managed identity |
-| Application Insights + Log Analytics | Pay-as-you-go | Traces, metrics, front-end RUM |
-| Entra ID app registrations ×2 | Included | SPA + API |
+⚠️ **None of these exist.** The table is the target; the "Needed now" column says what the
+system as built in twelve sprints would actually require on day one.
+
+| Resource | SKU (prod) | Purpose | Needed now |
+|---|---|---|---|
+| Static Web App **×2** | Standard | Dashboards and Field are **separate apps in separate repos** — two sites, not one | ✅ yes — and the count is 2, which §11 never updated |
+| Container App + Environment | Consumption, 0.5 vCPU / 1 GiB, min 1 replica prod / 0 dev | API | ✅ yes — **×3**: gateway, discovery, milestone-service |
+| Container Registry | Basic | API images | ✅ yes |
+| PostgreSQL Flexible Server | B2s (prod) / B1ms (dev), 32 GB, 7-day PITR | Database | ✅ yes |
+| **Storage Account (Blob)** | Standard LRS, hot | **Evidence photographs** (`V9`). Not in the original plan — the product gained a camera | ✅ yes |
+| Web PubSub | Free (dev) / Standard S1 (prod) | WebSocket fan-out | ⚠️ **no** — §11 of `backend-architecture.md` is unbuilt. Provisioning it now would bill for a feature with no code |
+| Key Vault | Standard | Secrets via managed identity | ✅ yes |
+| Application Insights + Log Analytics | Pay-as-you-go | Traces, metrics, RUM | ✅ yes |
+| Entra ID app registrations | Included | SPA + API | ✅ yes |
+
+⚠️ **Three container apps, not one, is a real cost the microservices decision has not yet
+paid.** Discovery and the gateway carry no domain logic and each need a replica that cannot
+scale to zero — the gateway because it is the front door, discovery because a registry nobody
+can reach is worse than no registry. That is roughly two-thirds of the compute bill spent on
+routing to a single service. It is the right shape for four services and an expensive shape
+for one; see §1 of `backend-architecture.md`.
 
 Naming: `mc-<env>-<resource>` e.g. `mc-prod-api`, `mc-prod-pg`. One resource group per environment.
 
@@ -427,18 +512,35 @@ Naming: `mc-<env>-<resource>` e.g. `mc-prod-api`, `mc-prod-pg`. One resource gro
 
 Rough monthly, West Europe, low internal load (~50 users). **Verify against the Azure pricing calculator before committing — these move.**
 
-| Item | Dev | Prod |
-|---|---|---|
-| Static Web Apps | Free (€0) | Standard ~€8 |
-| Container Apps | scale-to-zero, ~€0–5 | ~€25–40 |
-| PostgreSQL Flexible | B1ms ~€13 | B2s ~€45 |
-| Web PubSub | Free | S1 ~€45 |
-| Container Registry | ~€4 | ~€4 |
-| Key Vault | <€1 | <€1 |
-| App Insights | free tier | ~€10–20 (5 GB free, then per GB) |
-| **Total** | **~€20/mo** | **~€140/mo** |
+| Item | Dev | Prod | Note |
+|---|---|---|---|
+| Static Web Apps ×2 | Free (€0) | Standard ~€16 | ⚠️ **doubled** — two front-end apps, not one |
+| Container Apps ×3 | scale-to-zero, ~€0–5 | ~€45–70 | ⚠️ **raised** — gateway + discovery + service, and two of the three cannot scale to zero |
+| PostgreSQL Flexible | B1ms ~€13 | B2s ~€45 | |
+| **Blob storage** | <€1 | **~€2–5** | New. Evidence photographs; cheap until someone uploads video |
+| Web PubSub | — | — | ⚠️ **removed for now** — nothing consumes it yet (−€45) |
+| Container Registry | ~€4 | ~€4 | |
+| Key Vault | <€1 | <€1 | |
+| App Insights | free tier | ~€10–20 | |
+| **Total** | **~€20/mo** | **~€125–160/mo** | Was "~€140". The Web PubSub saving very nearly cancels the cost of decomposition |
 
-**Cheaper MVP:** drop Web PubSub to Free (20 concurrent connections — fine for a pilot crew), run Postgres B1ms, and let Container Apps scale to zero → **~€35–50/month**. The single largest lever is Web PubSub; polling every 30 s instead of WebSockets would remove that line entirely at the cost of the "live" feel that is currently a selling point of the product.
+⚠️ **That near-cancellation is a coincidence, not a result.** The headline barely moved
+because one unbuilt feature was removed at the same moment the service split doubled the
+compute line. If Sprint 13 builds real-time fan-out as planned, Web PubSub returns and the
+prod figure goes to roughly **€170–205** — which is the number to quote to anyone deciding
+whether the split was worth it, not the flattering one above.
+
+**Cheaper MVP, updated.** Run Postgres B1ms, keep Web PubSub off, and collapse the three
+container apps into one — the gateway's version gate and the service can share a process for a
+pilot → **~€35–50/month**. ⚠️ **The largest lever is no longer Web PubSub, it is the service
+count**, and that is worth stating because it inverts the original advice: the plan assumed
+real-time was the expensive luxury, and decomposition turned out to cost more than the
+feature it was partly meant to enable.
+
+Polling every 30 s instead of WebSockets remains available and costs the "live" feel. The
+clients already refetch, so that is today's behaviour by default rather than a fallback —
+which is worth knowing before paying €45/month to replace something nobody has complained
+about.
 
 ---
 
@@ -482,38 +584,62 @@ Pull requests get an automatic staging URL from SWA — worth using as the revie
 
 ---
 
-## 13. Phased roadmap
+## 13. Phased roadmap — ✅ scored 2026-09-07
 
-**Phase 0 — Demo on Azure (½ day).** Deploy the current static build to Static Web Apps Free. No backend, no database; seed data and `localStorage` behave exactly as they do locally. Gets a shareable URL in front of stakeholders immediately, and validates the build pipeline. *The frozen `AS_OF = 2026-06-06` clock makes this a stable demo — an accident that works in your favour.*
+The phases were written as calendar time against an Azure deployment. What actually happened
+is twelve sprints of the same work with **no Azure at all**, which reorders them in a way
+worth recording.
 
-**Phase 1 — Foundations (2 weeks).** Bicep for dev; Postgres provisioned; schema + migrations (Flyway/EF/Prisma); seed the 32 real milestones from `core/data.ts` as fixture data; API skeleton with health check; CI green.
+| Phase | Planned | Outcome |
+|---|---|---|
+| 0 — Demo on Azure | ½ day | ⚠️ **never done, and no longer wanted.** The frozen `AS_OF` clock that made it a stable demo is exactly what a real system must not have. Skipping it cost nothing |
+| 1 — Foundations | 2 wk | ✅ done — minus Bicep and Postgres-on-Azure. Schema and migrations run in containers |
+| 2 — Read path | 2 wk | ✅ done — plus `?owner=me`, `/summary`, `/impact`, `/history`, none of which were in the plan |
+| 3 — Write path | 3 wk | ✅ done — including idempotency, which the plan put in Phase 6 |
+| 4 — Auth & roles | 2 wk | ✅ mostly — JWT, roles and ownership are built; JIT provisioning is not |
+| 5 — Real-time | 1 wk | ⚠️ **not started** — the one phase with a one-week estimate, and the only phase after 1 that nobody missed |
+| 6 — Field offline | 2 wk | ✅ done — IndexedDB outbox, idempotent replay, queued-state UI |
+| 7 — Production hardening | 1–2 wk | ⚠️ **not started.** No prod environment, no restore drill, no alerts, no load test |
 
-**Phase 2 — Read path (2 weeks).** `GET` endpoints; `StoreService` reads from HTTP; loading/error states in the components; the app renders live data from the database. *First moment the product is real.*
+**Three things this scoring says that the phase list could not.**
 
-**Phase 3 — Write path (3 weeks).** `commitReal` / `rebaseline` / CRUD; append-only audit enforced; optimistic concurrency + 409 handling; server-side variance/RAG with the calendar.
+**The order was wrong in a useful direction.** Idempotency was planned for Phase 6 alongside
+offline replay and got built in Phase 3, because the write path could not be called correct
+without it — an `Idempotency-Key` bolted on after the fact would have meant revisiting every
+write. Offline is the *consumer* of that guarantee, not its origin.
 
-**Phase 4 — Auth & roles (2 weeks).** Entra ID, MSAL, route guards, server-side role checks, replace `'You'` / `ME`.
+**Phase 5 being skipped for twelve sprints is data.** It was estimated at one week and sat at
+the top of the backlog the whole time without anyone needing it. Clients refetch; nobody has
+complained. That is the strongest evidence available that real-time is a feature to sell
+rather than a feature to run on, and it should change how Sprint 13 scopes it.
 
-**Phase 5 — Real-time (1 week).** Web PubSub replaces `BroadcastChannel`; the existing toast and bell UI keep working untouched.
-
-**Phase 6 — Field offline (2 weeks).** PWA, IndexedDB outbox, idempotent replay, queued-state UI.
-
-**Phase 7 — Production hardening (1–2 weeks).** Prod environment, backups + restore drill, alerts, load test, security review, runbook.
+⚠️ **Phase 7 is the whole remaining risk.** Everything not done is either a second service or
+production hardening, and the second service is optional. A restore drill is not. **No backup
+has ever been restored, because no database has ever been backed up** — the system's entire
+history lives in containers that are recreated on every CI run, and the day that stops being
+true is the day this phase becomes urgent rather than tidy.
 
 ---
 
 ## 14. Testing strategy
 
-There are **no tests today** and no `test` target in `angular.json`. Minimum viable coverage:
+✅ **Reconciled 2026-09-07.** "There are no tests today" is no longer true — see
+[`backend-architecture.md` §15](./backend-architecture.md#15-testing) for what exists.
 
 | Layer | Tool | What matters most |
 |---|---|---|
-| Domain unit | Vitest/Jest | `bizDays` across holidays, year boundaries, negative spans; `ragOf` thresholds. These drive every number on the exec dashboard |
-| API integration | Testcontainers + Postgres | Audit immutability, re-baseline gating, 409 concurrency |
-| E2E | **Playwright** | The reason-capture flow, cross-tab live sync, Field offline replay |
-| Load | k6 | Dashboard read path with 32 → 5,000 milestones (the PM tree renders every row today — **watch for a virtualization need**) |
+| Domain unit | Vitest/Jest | ⚠️ **still none on the front ends.** `bizDays` and `ragOf` survive in both clients as preview-only estimates and are untested there — which is how the hardcoded-threshold gap in §4 stayed hidden. The server-side equivalents are covered |
+| API integration | Testcontainers + Postgres | ✅ built — audit immutability, re-baseline gating, 409 concurrency, and 15 of 17 test classes on a real Postgres |
+| E2E | **playwright-core** | ✅ built as `npm run verify` in both front ends, running in CI — reason capture, offline replay, the version gate, evidence upload. ⚠️ It drives a **stub**, not the real API: it proves the client behaves, not that the two agree. The contract test covers the seam between them |
+| Load | k6 | ⚠️ **not built.** The tree still renders every row, and nothing has ever put 5,000 milestones through it. The virtualization question is exactly as open as it was on day one |
 
-A working Playwright driver already exists from the smoke-test session — reuse it as the seed of the E2E suite rather than starting cold.
+✅ That seed grew into `verify/` in both front-end repos: a stub API, a static server, a
+driver, and a launcher that starts and stops all of it (`npm run verify`). It uses
+**playwright-core against an already-installed browser** — msedge locally, chrome in CI — so
+nothing downloads a browser on a restricted machine. Two of its lessons are worth carrying:
+the stub **refuses to start on a port somebody else holds** (a stale stub once served old
+routes for an entire debugging session), and it **builds its fixtures relative to today**,
+because a fixture with fixed dates quietly becomes a different test every week.
 
 ---
 
@@ -530,11 +656,38 @@ A working Playwright driver already exists from the smoke-test session — reuse
 
 ---
 
-## 16. Open decisions
+## 16. Open decisions — ✅ scored 2026-09-07
 
-1. ~~**API stack**~~ — **decided: Spring Boot 4.1 on Java 25, as a modular monolith (Spring Modulith), not microservices.** Full rationale and design in [`backend-architecture.md`](./backend-architecture.md).
-2. **Postgres or Azure SQL?** Postgres for recursive CTEs and `jsonb`; Azure SQL if the shop is .NET-first and wants temporal tables for the audit trail (which would enforce immutability natively).
-3. **Who owns identity** — contractor tenant with B2B guests for the client, or a dedicated tenant?
-4. **Data residency** — an EPC project in a specific jurisdiction may pin the region and rule out some SKUs.
-5. **Is multi-project in scope for v1?** Schema supports it; the UI assumes exactly one and would need a project switcher.
-6. **Integration with the scheduling system of record** (Primavera P6 / MS Project)? If milestones must reconcile with P6, that is a whole additional import/export workstream — and it changes whether this tool *owns* the baseline or *mirrors* it. **This is the single biggest scope question on the list.**
+1. ~~**API stack**~~ — **decided and built:** Spring Boot **4.0.5** on Java **21**, Maven, split
+   into services per `platform-architecture.md`. ⚠️ The "modular monolith, not microservices"
+   half was **reversed the next day** and the reversal has been expensive so far (§10).
+2. ~~**Postgres or Azure SQL?**~~ — **decided: Postgres 17.** The recursive CTE in `/impact`,
+   `DISTINCT ON`, array-based cycle guards and the `milestone_view` derivation all lean on it.
+   Azure SQL's temporal tables would have given audit immutability natively; `REVOKE` plus a
+   trigger got there instead, and is provable by test either way.
+3. **Who owns identity** — ⚠️ **still open, and now blocking nothing but will block the first
+   customer.** Entra validation is built; there is no tenant, no B2B guest configuration, and
+   no JIT provisioning, so a genuinely new user authenticates and owns nothing.
+4. **Data residency** — ⚠️ still open. Untouched, because nothing is deployed.
+5. ~~**Is multi-project in scope for v1?**~~ — **answered by the build: yes.** Every endpoint is
+   project-scoped and the tree is fetched per project. ⚠️ Multi-**tenant** is a different
+   question and remains unanswered — see §4.
+6. **Integration with the scheduling system of record (P6 / MS Project)** — ⚠️ **still the
+   single biggest scope question, and it has grown teeth.** Twelve sprints have built a system
+   that *owns* the baseline: `scheduled_date` is trigger-protected, re-baselining is a
+   privileged audited act, and the whole product promise rests on that being true here rather
+   than somewhere else. **Mirroring P6 would contradict the schema, not merely extend it.**
+   The competitive analysis in `mc-concept/docs/competitive-landscape.md` reaches the same
+   conclusion from the other direction and recommends a **one-way skeleton import** — P6
+   supplies structure once, this system owns the dates from then on. That is now the default
+   answer unless a client insists otherwise, and it should be settled in writing before the
+   first integration conversation rather than during one.
+
+---
+
+## Reconciliation note
+
+This document was written on 2026-08-14 to plan a deployment that has not happened. It has
+been annotated rather than rewritten, because the gap between a plan and its outcome is more
+useful than a plan retro-fitted to look correct. Every ✅ was checked against the code or CI
+on 2026-09-07; every ⚠️ is a thing that does not exist.
