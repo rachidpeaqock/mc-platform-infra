@@ -389,8 +389,23 @@ The design system becomes a shared dependency of four repos, which is where micr
 | **milestone-service** | `project` `phase` `work_package` `milestone` `milestone_dependency` `milestone_log` `rebaseline` `work_calendar` `calendar_holiday` `reason_code` | The transactional core. Every write invariant lives here | **1** (scheduled sweeper + outbox) |
 | **activity-service** | `activity_event` `notification_read` | Different scaling profile — fan-out volume is unrelated to write volume; owns the Web PubSub connection | **1** (outbox drain) |
 | **template-service** | `template` `template_row` | Genuinely separate lifecycle; planners use it in bursts, no shared invariant with milestones | 0 (scale to zero) |
-| **identity-service** | `app_user` `user_project_role` | Read-mostly, cached everywhere, changes rarely | 0 |
+| **identity-service** | `app_user` — ⚠️ **not** `user_project_role`, see below | Read-mostly, changes rarely | 0 |
 | *later* **integration-service** | `integration_run` `external_ref` | Camel 4.20, external cadence, batch-shaped | 0 (cron job) |
+
+✅ **`identity-service` was built on 2026-09-07**, out of epic order (E7 was Sprint 17),
+because it was the only thing standing between the platform and showing a person's name
+anywhere. It owns **`app_user` only**.
+
+⚠️ **`user_project_role` is deliberately not built.** Authorization reads roles from Entra app
+roles in the token and every service checks them for itself; a per-project role table would be
+a second source of truth nothing consults — the same ceremony MC-214 was parked for. It
+arrives on the day authorization needs a role that varies *by project*, which is a real future
+and is not today.
+
+⚠️ **The service is not an authorization authority, and the distinction matters more here than
+anywhere.** It answers "who is this", never "may they". It validates the token itself despite
+the gateway having done so, because every service is reachable directly on its own port and
+this is the one whose answers other services will be tempted to trust.
 
 Each service keeps the internal structure described in [`backend-architecture.md`](./backend-architecture.md) — Spring Boot 4.0.5, Java 21, Maven, modules inside. ⚠️ **"Aggregate-owned invariants" did not survive**: there is no aggregate class, and the write-path checks live in `MilestoneService` with the database as the backstop ([backend §5](./backend-architecture.md#5-domain-model-and-invariants)). `milestone-service` is roughly 70% of the total backend work and, as of Sprint 12, is the only domain service that exists.
 

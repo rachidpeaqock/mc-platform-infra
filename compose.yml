@@ -179,6 +179,55 @@ services:
     # ordering the cloud pipeline uses: migrate, then deploy.
     restart: on-failure:5
 
+  # ⚠️ A second migrate job, not an extra location on the first one.
+  #
+  # One database per service means one Flyway history table per service.
+  # Pointing a single job at both migration sets would write both services'
+  # history into whichever database it connected to, and the second service
+  # to migrate would find a history it did not write and refuse to start.
+  migrate-identity:
+    image: flyway/flyway:11
+    profiles: [migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../mc-identity-service/src/main/resources/db/migration:/flyway/sql/migration:ro
+    command: >
+      -url=jdbc:postgresql://postgres:5432/identity_db
+      -user=identity_svc
+      -password=identity_svc
+      -locations=filesystem:/flyway/sql/migration
+      -connectRetries=10
+      migrate
+
+  identity-service:
+    image: ghcr.io/rachidpeaqock/mc-identity-service:main
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      EUREKA_URI: http://discovery-server:8761/eureka
+      DB_URL: jdbc:postgresql://postgres:5432/identity_db
+      DB_USER: identity_svc
+      DB_PASSWORD: identity_svc
+    depends_on:
+      postgres:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    # Same rule as milestone-service: this does not migrate its own
+    # database and will fail until the schema exists. First run:
+    #
+    #   cd ../mc-identity-service && mvn flyway:migrate
+    #
+    # ⚠️ Nothing else on the platform depends on this container being up.
+    # Names are an enhancement, not a prerequisite — a client that cannot
+    # reach identity renders rows without attribution, exactly as it did
+    # before this service existed. That is deliberate, and it is why there
+    # is no depends_on pointing here from milestone-service.
+    restart: on-failure:5
+
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     profiles: [tools]

@@ -6,8 +6,9 @@ Companion to [`azure-deployment-plan.md`](./azure-deployment-plan.md), which cov
 
 **Status:** partly built · **Written:** 2026-08-14 · **Last reconciled against the code:** 2026-09-07
 
-**Repos that exist:** `mc-discovery-server`, `mc-api-gateway`, `mc-milestone-service`.
-**Designed, not created:** `mc-activity-service`, `mc-template-service`, `mc-identity-service`.
+**Repos that exist:** `mc-discovery-server`, `mc-api-gateway`, `mc-milestone-service`,
+`mc-identity-service`.
+**Designed, not created:** `mc-activity-service`, `mc-template-service`.
 
 > ⚠️ **Read this document as two things at once.** Sections marked ✅ have been reconciled
 > against the code and describe what runs; sections marked ⚠️ describe a design that was not
@@ -50,9 +51,14 @@ Companion to [`azure-deployment-plan.md`](./azure-deployment-plan.md), which cov
 
 ✅ **One of the four is built.** `milestone-service` runs, behind `mc-api-gateway` with
 `mc-discovery-server` for registration — three Spring Boot applications in total, of which
-one is a domain service. The other three domain services are unstarted, and the decision has
-held up well precisely because nothing forced them into existence early: identity is Entra,
-templates have no consumer yet, and activity waits on Sprint 13. **A four-service split where
+one was a domain service. **`identity-service` joined it on 2026-09-07** — two domain
+services now, out of the planned four.
+
+The decision has held up well precisely because nothing forced the others into existence
+early. Templates still have no consumer. Activity was asked for twice and had no job both
+times: MC-342 showed the feed did not need it, because `milestone-service` already owned
+the facts. **Identity was the opposite case and that is why it got built** — a name is
+genuinely not milestone data, and no amount of looking would find it already there. **A four-service split where
 only one service has any data in it is, so far, a one-service system with two pieces of
 routing** — worth stating plainly, because the split's costs arrive before its benefits.
 
@@ -1209,7 +1215,7 @@ The estimates are left as written so the plan can be judged rather than quietly 
 |---|---|---|---|
 | B1 | Repo, build, Boot skeleton, compose, CI build | 3 d | ✅ **built** — Maven, not Gradle (§16) |
 | B2 | Flyway baseline (tables, views, grants, triggers) | 4 d | ✅ **built** — grew to nine migrations (§6) |
-| B3 | `shared` + `identity` (Entra JWT, JIT provisioning, roles) | 5 d | ⚠️ **half** — JWT validation and roles are in `SecurityConfig`; **JIT provisioning is not built** and there is no identity service. A user row exists only if seeded |
+| B3 | `shared` + `identity` (Entra JWT, JIT provisioning, roles) | 5 d | ✅ **built** — JWT validation and roles in each service's `SecurityConfig`, and **JIT provisioning in `mc-identity-service`** (2026-09-07), which also resolves ids to names in batch. ⚠️ Per-project roles are still not built: authorization reads Entra app roles from the token, so a `user_project_role` table would be a second source of truth nothing reads |
 | B4 | `schedule` (work calendar, `bizDays`, RAG) + unit suite | 4 d | ✅ **built** — in SQL, tested against real Postgres (§15) |
 | B5 | `catalog` read path + `/milestones`, `/summary` | 6 d | ✅ **built**, plus `?owner=me` pruning, which was not in the plan |
 | B6 | `catalog` write path + `audit` | 8 d | ✅ **built** — without `mark-done`, which collapsed into `real-date` (§8) |

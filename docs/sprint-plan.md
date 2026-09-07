@@ -1859,6 +1859,92 @@ done.
 
 ---
 
+### MC-701 — `identity-service`, built out of order · ✅ **Done**
+
+E7 was Sprint 17. It was built on 2026-09-07 because it was the only thing standing between
+this platform and showing a person's name anywhere at all, and because the two options I put
+up were not equal: **`activity-service` had been asked for twice and had no job either time**,
+while identity had a payoff nobody could work around.
+
+**The fourth service, and the first built because something visible was missing** rather than
+because a plan listed it.
+
+| | |
+|---|---|
+| `GET /api/v1/me` | The caller's profile, provisioned on first sight |
+| `GET /api/v1/users?ids=…` | **Resolve a batch of ids to names** — the endpoint the platform came for |
+| `GET /api/v1/users/{id}` | One profile |
+| | **No write surface at all** |
+
+**The primary key is the Entra `oid`, and that is why nothing had to be migrated.**
+`milestone-service` has been writing that exact value into `owner_id` and `actor_id` since
+Sprint 6, so every existing audit row already points at this table. A surrogate key would have
+needed a mapping table and would have left every historical row referring to something this
+service could not resolve — **failing silently, as missing names rather than as an error**.
+
+**No write surface is a decision, not an omission.** Every field is a copy of what a token
+said and Entra is the system of record; an endpoint to override it would create exactly the
+disagreement the service exists to avoid. The fix for a stale name is for its owner to sign in
+again.
+
+**Provisioning happens on any authenticated request, not inside `/me`.** Putting it in `/me`
+is cheaper and fragile: it makes a user's existence depend on a client remembering one call,
+and the consequence of forgetting is not an error but an **absence** — a name missing from an
+audit trail six weeks later.
+
+⚠️ **`user_project_role` is not built**, though §6 names it as this service's. Authorization
+reads Entra app roles from the token, so a per-project role table would be a second source of
+truth nothing consults — **the same ceremony MC-214 was parked for**, and it would have been
+easy to build it here simply because the architecture diagram has a box for it.
+
+#### Three CI rounds, and what each one was
+
+CI is the only compiler this project has, so the sequence is the record:
+
+| Round | Result |
+|---|---|
+| 1 | Compiled, ArchUnit 3/3, **5 HTTP tests failed** |
+| 2 | **14 of 15**, one real defect |
+| 3 | **15 of 15**, image build failed — no `Dockerfile` |
+| 4 | ✅ Green |
+
+**Round 1 was my mistake, and the evidence named it exactly.** Every failing test used a
+fixture name containing a space; the two whose names were single words passed. A Bearer token
+is `token68` (RFC 6750), grammar `[A-Za-z0-9-._~+/]` — a space means Spring extracts *no token
+at all* and the request arrives anonymous, so the symptom is a 401 that reads as broken
+authentication rather than as a malformed fixture. `mc-milestone-service` already records the
+other half of this lesson, about `@` in the separator. **I read that comment, followed its
+advice about the separator, and then put spaces in the very names it was warning about.**
+`+` now stands for a space and the decoder puts it back.
+
+**⚠️ Round 2 was a real design flaw, and the test earned its keep.** The provisioning cache
+was a `Set<UUID>`, so once a user had been seen nothing about them was ever read again — a
+person who changed their name in Entra would keep the old one on every screen until a
+deployment happened to restart the process. I had written that weakness into the class javadoc
+*as a feature*: "a restart re-provisions each active user once, which keeps the copy fresh".
+It is only true if restarts are frequent, which is not something a correctness property may
+depend on. The cache is now keyed on the whole claims record, so a rename is a miss and
+propagates on the next request.
+
+**Note what caught it: every test that provisioned a user once passed.** The failing test
+provisioned the same user twice with different claims, which is the only shape that can see
+it. **Second time on this project a defect survived because a fixture exercised a single
+pass** — MC-427 was the first, and both were found by making the fixture vary rather than by
+reading the code.
+
+| | |
+|---|---|
+| `mc-identity-service` | **15 tests** · contract 1.0.0 · image published |
+
+⚠️ **What is not done.** There is no `OpenApiContractTest` here, so unlike
+`mc-milestone-service` this service's published contract is not pinned against a committed
+baseline — a controller edit can change it silently. That is an inconsistency worth closing
+before a second consumer depends on it. And **nothing consumes the names yet**: wiring
+`mc-dashboards` to resolve the feed's actor ids is the next piece, and it is where this
+service stops being infrastructure and becomes visible.
+
+---
+
 ### The prefix guard — closing MC-430's residual risk · ✅ **Done**
 
 `GatewayRoutingTest` could not close this on its own, and saying why is the useful part: its
@@ -2049,6 +2135,7 @@ however many times the phone retries.
 |---|---|
 | `mc-milestone-service` | **180 tests**, twelve against Azurite over the real Blob API. Contract **2.6.0** |
 | `mc-api-gateway` | **40 tests** — version gate, routing, rate limiting, timeouts, fallback |
+| `mc-identity-service` | **15 tests** — JIT provisioning, batch resolve, boundaries. Contract **1.0.0** |
 | `mc-dashboards` | **55 browser assertions**, in CI |
 | `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
 
