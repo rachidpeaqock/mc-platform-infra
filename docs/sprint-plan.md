@@ -461,8 +461,8 @@ real.
 | **MC-339** | As **P2 (PM)**, I read one milestone's **delay log and re-baseline history** in the detail drawer, so I can see what actually happened to it rather than only that it is late. | 5 | ➡️ **Sprint 11.** Found while swapping the PM tree. The drawer's largest panel had no data behind it. MC-336 solved the *exec* badge by carrying the last reason on each exposure row, which is one label; the drawer needs the sequence. The server holds the trail and no endpoint reads it per milestone. **The drawer now says so rather than falling back to the prototype's "No changes — real date still equals scheduled", which would have been a lie on every milestone that has slipped.** |
 | **MC-340** | As **P2 (PM)**, I see a milestone's **predecessors**, so the dependency panel says what this milestone is waiting on. | 3 | ➡️ **Sprint 11.** Found while swapping the PM tree. Nothing the API returns points upstream. Successors were recoverable for free — `GET /impact` is the transitive closure with a depth on each row, so depth 1 *is* the direct successors, and the drawer renders them from the walk it already fetches. There is no equivalent walking the other way. |
 | **MC-341** | As **P1 (sponsor)**, the S-curve is anchored to the **project's own start and finish dates**, so the x-axis is not a seed constant. | 2 | ➡️ **Sprint 11.** `PROJECT.scheduledStart` and a hardcoded `2027-04-15` still drive the chart's geometry — the only surviving use of the seed on the exec screen now that the project's *name* comes from the server. Needs two dates on `GET /projects/{id}`. |
-| **MC-342** | As **any user**, the activity feed and the notification bell show **real events from the platform**, not an empty list. | 3 | ➡️ **Sprint 13**, and now **explicitly** empty. `StoreService` fed the bell from this app's own `localStorage` writes; nothing writes there any more, so the only thing the feed could still surface was **leftover prototype events from an old browser session, rendered as current activity**. The store and the adapter are deleted rather than left mapping a permanently empty array. A **visible regression from the prototype**, and it must not be discovered as a surprise in Sprint 13. |
-| **MC-343** | As **P1 (sponsor)**, the exec numbers **reflect a change a PM just made**, without a reload. | 3 | ➡️ **Sprint 14**, where the push channel is built and the choice is actually available. Found while swapping the PM tree. `GET /summary` is fetched once per load and never refreshed, so every write leaves it stale: the project row and the whole exec screen keep the old counts until the page reloads. Deliberately *not* fixed by refetching the summary after each write — that is a design choice between refetch, refresh-on-view and the push channel Sprint 14 builds, and picking the first one silently would prejudge it. |
+| **MC-342** | As **any user**, the activity feed and the notification bell show **real events from the platform**, not an empty list. | 3 | ✅ **Done in Sprint 13**, from the audit trail — no activity-service, no Kafka. *(original note follows)* ➡️ ~~Sprint 13~~, and now **explicitly** empty. `StoreService` fed the bell from this app's own `localStorage` writes; nothing writes there any more, so the only thing the feed could still surface was **leftover prototype events from an old browser session, rendered as current activity**. The store and the adapter are deleted rather than left mapping a permanently empty array. A **visible regression from the prototype**, and it must not be discovered as a surprise in Sprint 13. |
+| **MC-343** | As **P1 (sponsor)**, the exec numbers **reflect a change a PM just made**, without a reload. | 3 | ✅ **Done in Sprint 13**, a sprint early, because MC-342 settled the decision this was waiting on: the push channel is not being built, so the choice collapsed to refetch vs refresh-on-view and refetch won. *(original note follows)* ➡️ ~~Sprint 14, where the push channel is built and the choice is actually available.~~ Found while swapping the PM tree. `GET /summary` is fetched once per load and never refreshed, so every write leaves it stale: the project row and the whole exec screen keep the old counts until the page reloads. Deliberately *not* fixed by refetching the summary after each write — that is a design choice between refetch, refresh-on-view and the push channel Sprint 14 builds, and picking the first one silently would prejudge it. |
 | **MC-344** | As **P5 (admin)**, a reason category I add server-side **appears in the capture modal**, so the picker is not a second catalogue. | ~~3~~ **5** | ✅ **Done, and it grew by one rule.** `GET /api/v1/reason-codes`, and `REASONS` is deleted from `core/data.ts` with **no fallback list**. Re-pointed because the story turned out to include a second hardcoded copy of reason semantics — see below. |
 
 ### The ordering that makes MC-337 work, and the one that makes it useless
@@ -669,7 +669,7 @@ tried".
 | **MC-339** per-milestone history | **Sprint 11** | The drawer's largest panel says it has no data instead of inventing some, which is correct but not finished. Sprint 11 rather than 10 because Field's offline outbox makes "what happened to this milestone" a question a *second* client asks, and one endpoint should answer both. |
 | **MC-340** predecessors | **Sprint 11** | Rides with MC-339: the same drawer, the same fetch-on-selection, and the dependency panel currently hardcodes `FS` as the link type, which is its own small lie to fix. |
 | **MC-341** S-curve anchored to project dates | **Sprint 11** | Two dates on `GET /projects/{id}` and the last use of the seed constant on the exec screen goes. Small, and grouped with the other read-path gaps so the contract changes once. |
-| **MC-343** exec numbers stale after a write | **Sprint 14** | Deliberately not fixed by refetching the summary after every write. That is one of three answers — refetch, refresh-on-view, or the push channel — and Sprint 14 builds the third. Picking the cheapest one now would prejudge a decision that is about to become free. |
+| **MC-343** exec numbers stale after a write | ~~Sprint 14~~ **done in 13** | The deferral was right and its premise expired. Three answers — refetch, refresh-on-view, push — and the third was never built, so the decision became free in a way nobody predicted: by one option being removed rather than by it arriving. |
 | **MC-345** a repeatable browser harness | **Sprint 11** | Logged this sprint. Cheap, and it pays for itself the next time a rendering defect is invisible to the compiler — which has now happened in two consecutive sprints. |
 | **MC-342** activity feed and bell | **Sprint 13** | Already carried, and already **explicitly empty** rather than mapping a permanently empty array. A visible regression from the prototype, and it must not be a surprise in Sprint 13. |
 | **MC-214** event schema registry | **Sprint 13** | Moved from Sprint 5 and re-pointed from 10 to 13: it gates event schemas, and the first event is produced by `activity-service`, not by Field. Gating an empty set a sprint earlier gates nothing. |
@@ -1730,7 +1730,8 @@ Production builds clean in both apps.
 |---|---|---|---|
 | **MC-427** | The preview uses the project's thresholds | 3 | ✅ **Done** |
 | **MC-342** | The activity feed and the notification bell show real platform events | 3 | ✅ **Done** — and **without `activity-service` or Kafka**; see below |
-| **MC-214** | A schema registry with backward-compatibility enforcement gates every event-schema change | 5 | ⬜ To do — finally with a real event to gate |
+| **MC-343** | The exec numbers reflect a change a PM just made, without a reload | 3 | ✅ **Done** — pulled forward from Sprint 14 |
+| **MC-214** | A schema registry with backward-compatibility enforcement gates every event-schema change | 5 | ⚠️ **Parked again — fourth time, and now against a trigger instead of a sprint** |
 | **MC-501** | `activity-service` with its own database | — | ⚠️ **Re-open against a trigger, not a date** — the first event `milestone-service` does not already store |
 | **MC-502** | Kafka as the event backbone; `milestone-service` produces | — | ⚠️ **Same** — nothing consumes an event across a service boundary yet |
 
@@ -1789,6 +1790,62 @@ on this laptop.
 
 ---
 
+### MC-343 — the exec numbers move when a write lands · 3 pts · ✅ **Done**
+
+`GET /summary` was fetched once per load and never again, so **every write left the executive
+screen showing counts the server had already superseded** — done, missed, at risk, days lost
+by reason, worst exposure, the headline slip. The segment control swaps components without
+reloading, so a PM could record a slip, flip to the exec view, and read last hour's numbers
+with nothing on screen suggesting they were old.
+
+**This story was waiting on a decision, and MC-342 made it.** It was deferred to Sprint 14
+"where the push channel is built and the choice is actually available", because refetch,
+refresh-on-view and push were three answers and picking the cheapest early would prejudge it.
+The push channel is not being built. So the choice collapsed to two, and refetch wins:
+refresh-on-view still leaves a window where the screen is knowingly wrong, and the exec screen
+is the one people quote numbers out of.
+
+**Refreshed after every successful write, including a rename.** Being selective would mean the
+client deciding which fields feed which aggregate — whether `critical` affects the exposure
+list, say. That is the server's model, and a client holding a copy of it is exactly MC-427.
+One small request on an action a human deliberately took is a cheap price for never having to
+be right about that.
+
+⚠️ **It is not a push channel and must not be read as one.** It refreshes after *your* write.
+A sponsor watching the exec screen while somebody else records a slip still sees nothing. That
+remains the only genuinely push-shaped case on this platform — far narrower than "live sync
+across web and mobile" — and it is still unbuilt.
+
+The stub had to change too: it now answers with different aggregates once a write has landed.
+Without that it would return the same numbers before and after, and **the assertion would have
+passed against the stale client the story exists to fix** — the same fixture-agrees-with-the-bug
+trap as MC-427 and MC-341. ✅ Confirmed failing first: `+4` where `+41` was due.
+
+| | Before | After |
+|---|---|---|
+| `mc-dashboards` browser assertions | 52 | **55** |
+
+---
+
+### MC-214 — parked for the fourth time, and this time properly
+
+Moved Sprint 5 → 10 → 13, each time to the sprint that would produce the first event. Sprint 13
+did not, because MC-342 showed the feed did not need one. Re-pointing it to Sprint 14 would be
+the same mistake a fourth time.
+
+**It is now parked against a trigger: the first event published across a service boundary.**
+A schema registry with no schema to gate is ceremony, and three re-pointings are enough
+evidence that a date is the wrong thing to attach it to. The same trigger governs MC-501 and
+MC-502.
+
+That trigger is worth stating plainly because it may never fire: if `milestone-service` keeps
+turning out to already own what a new screen needs, the platform does not acquire a second
+producer, and MC-214, MC-501 and MC-502 are all work that correctly never happens. **Sprint 13
+is the first sprint on this project where the most valuable output was deciding not to build
+three things.**
+
+---
+
 ⚠️ **Scope this sprint against what §13 of the deployment plan just showed.** Real-time
 fan-out was estimated at one week and sat untouched for twelve sprints while clients refetched
 and nobody complained. The activity feed is worth building; **a live push channel is not
@@ -1811,7 +1868,7 @@ however many times the phone retries.
 |---|---|
 | `mc-milestone-service` | **177 tests**, twelve against Azurite over the real Blob API. Contract **2.6.0** |
 | `mc-api-gateway` | **17 tests**, including the version gate |
-| `mc-dashboards` | **52 browser assertions**, in CI |
+| `mc-dashboards` | **55 browser assertions**, in CI |
 | `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
 
 **No client on this platform holds domain data any more.** `mc-dashboards` lost the last of its seed
