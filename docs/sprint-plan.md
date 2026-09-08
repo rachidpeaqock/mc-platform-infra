@@ -2192,6 +2192,91 @@ that has an actual consumer waiting. Decide that before provisioning anything.
 
 ---
 
+## Sprint 14 opens · 2026-09-08 — MC-338, and structure without SQL
+
+### MC-338 — a planner builds a project's structure · 5 pts · ✅ **Done**
+
+⚠️ **The plan had this deferred to Sprint 15 as "the templates service's job", and that was
+wrong.** `phase` and `work_package` are tables in **milestone-service's** database. A template is
+a separate thing that *instantiates* them. Waiting for a service that does not exist, in order
+to write rows this service already owns, is the same mistake MC-342 nearly made with
+`activity-service` — and it had been blocking a real gap for six sprints: **a planner could not
+start a project without a manual `INSERT`.**
+
+`POST`/`PATCH` on `/api/v1/phases` and `/api/v1/work-packages`. Contract **2.7.0**.
+
+**The story's rationale was one sentence, and the constraint that was supposed to enforce it
+did not.**
+
+> *"Piping" typed twice with different capitalisation would become two work packages, and
+> nobody would notice until a report split in half.*
+
+V1 declared `UNIQUE (phase_id, name)`. ⚠️ **It is case-sensitive**, so `Piping` and `piping`
+both insert happily. **A constraint that guards something narrower than the story required is
+worse than none — it reads like protection.** V10 replaces both with case-insensitive unique
+indexes, and the service trims on the way in, because `"Piping "` and `"Piping"` render
+identically on every screen.
+
+The duplicate is caught **on the constraint**, not checked first with a `SELECT`. Check-then-insert
+is a race: two planners adding "Piping" at the same moment both see nothing and both insert —
+precisely what the story exists to prevent.
+
+| Decision | Why |
+|---|---|
+| Roles are `PLANNER`/`ADMIN`, **not `PM`** | A PM moves dates and re-baselines *within* a structure. Renaming a phase changes every roll-up that mentions it |
+| No sort given → goes **last** | What somebody adding a phase almost always means. Defaulting to 0 would silently reorder a plan on every addition |
+| A `PATCH` with neither field is **refused** | Almost always a client bug — a form that lost its state. Answering 200 reports success for a change that did not happen |
+| **No `DELETE` at all** | A phase holds packages holding milestones holding audit trails, and `ON DELETE CASCADE` answers "what happens to the work underneath" by destroying it. When somebody asks, it needs a name that says what it does to the contents |
+| `StructureView`, not `Phase`/`WorkPackage` | `ProjectMilestones` already contributes both of those schema names from its nested records. **The 2.6.0 collision lesson was not a one-off** — verified in the regenerated spec: `Phase` and `WorkPackage` are still the originals |
+
+#### The guard fired — in the right direction, twice
+
+`GatewayPrefixContractTest` exists because three endpoints have shipped unroutable here. MC-338
+introduced two new prefixes, which is exactly its trigger.
+
+⚠️ **It did not go red, and the comment in the test now says so.** The check was run by hand
+against its own list first, reported all four paths unrouted, and the gateway was updated before
+pushing. **"The guard works" and "the guard fired" are different claims**, and only the first is
+true here.
+
+✅ **Its second direction did fire, unprompted.** `everyPrefixIsStillUsed` failed because
+`/api/v1/phases` sat in the prefix list while the committed contract had no path using it. That
+is the assertion nobody writes — a list maintained in only one direction stops being
+trustworthy — doing its job on its first real opportunity.
+
+#### The baseline came from CI again
+
+Two expected failures on push (the contract diff, and the one above), then `gh run download`,
+then green. **Hand-patching the baseline is how this file went wrong repeatedly**; the artifact
+path that `identity-service` proved yesterday is now the normal way to change this contract.
+
+| | Before | After |
+|---|---|---|
+| `mc-milestone-service` tests | 180 | **197** |
+| Contract | 2.6.0 | **2.7.0** |
+
+---
+
+### ⚠️ Deferred to the manual test phase — not blockers, and not to be re-listed
+
+Agreed 2026-09-08: **the human-dependent work happens together at the end**, as one manual
+testing pass, and whatever it finds becomes bug tickets then. Until that pass, these are not
+"next steps" and should stop appearing as though they were.
+
+| | What | Why it needs a person |
+|---|---|---|
+| H1 | **Install the APK on a real phone** | Camera, GPS and the privacy cover have only ever run against browser fallbacks. Native-only defects have been accumulating since Sprint 3 by deliberate choice |
+| H2 | **Dev-seed `oid` swap** | One `UPDATE`, needs a real Entra object id. Until it runs, a real Field sign-in correctly sees an empty list |
+| H3 | **Design-system release** | The `attribution()` fix is committed and unpublished, so Field-sourced feed rows still read "Field" rather than the person's name |
+| H4 | **Anything needing Azure** | B16, Phase 7, the restore drill, the load test. No subscription is in use |
+
+⚠️ **H1 is the one with real risk attached.** Everything native is written against Capacitor's
+web fallbacks; the first device run will find more than it would have if devices had been in the
+loop throughout. That cost was knowingly taken to avoid blocking on an enrolment queue, and it
+comes due in that pass.
+
+---
+
 ## Where things actually stand · 2026-09-07 (Sprint 13 open)
 
 **Sprints 0–12 complete. Epic E4 is finished bar shipping.** A crew lead can record an update with
@@ -2201,7 +2286,7 @@ however many times the phone retries.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **180 tests**, twelve against Azurite over the real Blob API. Contract **2.6.0** |
+| `mc-milestone-service` | **197 tests**, twelve against Azurite over the real Blob API. Contract **2.7.0** |
 | `mc-api-gateway` | **40 tests** — version gate, routing, rate limiting, timeouts, fallback |
 | `mc-identity-service` | **18 tests** — JIT provisioning, batch resolve, boundaries, contract. Pinned at **1.0.0** |
 | `mc-dashboards` | **64 browser assertions**, in CI |
