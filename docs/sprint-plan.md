@@ -1979,14 +1979,37 @@ reading the code.
 
 | | |
 |---|---|
-| `mc-identity-service` | **15 tests** · contract 1.0.0 · image published |
+| `mc-identity-service` | **18 tests** · contract 1.0.0, pinned · image published |
 
-⚠️ **What is not done.** There is no `OpenApiContractTest` here, so unlike
-`mc-milestone-service` this service's published contract is not pinned against a committed
-baseline — a controller edit can change it silently. That is an inconsistency worth closing
-before a second consumer depends on it. And **nothing consumes the names yet**: wiring
-`mc-dashboards` to resolve the feed's actor ids is the next piece, and it is where this
-service stops being infrastructure and becomes visible.
+✅ **Both caveats closed.** `mc-dashboards` consumes the names (MC-702, above), and the
+contract is pinned (below).
+
+#### The contract, pinned · ✅ **Done**
+
+This service shipped without an `OpenApiContractTest`, which was the clearest inconsistency
+on the platform: `mc-milestone-service` cannot change its published contract without somebody
+committing the change, and this one could change it silently. **Size was the wrong reason to
+skip it** — a service with three endpoints has three endpoints somebody is about to depend
+on, and `mc-dashboards` already did by the time it was noticed.
+
+**The baseline came out of CI, not off this laptop.** The test writes the generated spec to
+`target/openapi.json` and fails when no baseline exists; `java-service.yml` uploads that file
+as an artifact for exactly this purpose. So the sequence was deliberate: push a commit that
+**is expected to fail**, `gh run download` the spec, commit it, push again. ⚠️ Hand-writing
+the baseline is how `mc-milestone-service`'s went wrong repeatedly before this path existed —
+springdoc emits details no human predicts.
+
+Two assertions beyond the comparison, and both guard against a failure the baseline check
+cannot see on its own:
+
+| | |
+|---|---|
+| `/users` and `/me` are present | **A technically valid empty spec is exactly what a baseline check would happily pin forever**, and it would stay invisible until a consumer generated a client from it and found nothing |
+| ⚠️ **No non-GET method exists anywhere** | This service is read-only by design. *"Add a small PATCH to fix a name"* is a reasonable-sounding request that quietly makes it a second source of truth about who somebody is — so the refusal is pinned rather than left to a code review |
+
+Checked before committing rather than trusted: the `servers` block is stripped (it carries a
+random test port and would fail the next run for a reason unrelated to the contract), and
+`ids` is an array of uuids — the shape `mc-dashboards` actually sends.
 
 ---
 
@@ -2180,7 +2203,7 @@ however many times the phone retries.
 |---|---|
 | `mc-milestone-service` | **180 tests**, twelve against Azurite over the real Blob API. Contract **2.6.0** |
 | `mc-api-gateway` | **40 tests** — version gate, routing, rate limiting, timeouts, fallback |
-| `mc-identity-service` | **15 tests** — JIT provisioning, batch resolve, boundaries. Contract **1.0.0** |
+| `mc-identity-service` | **18 tests** — JIT provisioning, batch resolve, boundaries, contract. Pinned at **1.0.0** |
 | `mc-dashboards` | **64 browser assertions**, in CI |
 | `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
 
