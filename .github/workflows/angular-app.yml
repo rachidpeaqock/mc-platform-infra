@@ -129,7 +129,37 @@ jobs:
       pull-requests: write
 
     steps:
+      # ⚠️ A repo with deploy: true but no Static Web App yet gets a clear
+      # skip, not a failure.
+      #
+      # Without this, the deploy action fails with an authentication error
+      # that reads like a broken token rather than an absent one — and a
+      # repo sits red for as long as it takes somebody to create the Azure
+      # resource. Turning the intent on before the resource exists is a
+      # perfectly reasonable order to do things in, and the pipeline should
+      # not punish it.
+      - name: Check for a deployment token
+        id: token
+        env:
+          SWA_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        run: |
+          if [ -z "$SWA_TOKEN" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Deploy skipped — no Static Web App yet"
+              echo
+              echo "\`${{ inputs.app-name }}\` asks to be deployed, but this"
+              echo "repository has no \`AZURE_STATIC_WEB_APPS_API_TOKEN\` secret."
+              echo
+              echo "Create the Static Web App and add its deployment token as that"
+              echo "secret; the next push publishes with no further code change."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/download-artifact@v4
+        if: steps.token.outputs.present == 'true'
         with:
           name: ${{ inputs.app-name }}-dist
           path: dist
@@ -138,6 +168,7 @@ jobs:
       # environment, torn down when the PR closes. The action picks which
       # from the triggering event; nothing here needs to branch on it.
       - name: Deploy
+        if: steps.token.outputs.present == 'true'
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
