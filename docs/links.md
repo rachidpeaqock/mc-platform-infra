@@ -5,7 +5,43 @@ one repository survives, the rest can be found from it.
 
 ---
 
-## 1. Repositories
+## 1. ⚠️ Deployed apps — these are live right now
+
+Verified 2026-09-13: all three answer **HTTP 200**.
+
+| App | URL | Last deployed |
+|---|---|---|
+| **Dashboards** | https://yellow-sand-06533ac0f.7.azurestaticapps.net | 2026-09-06 |
+| **Templates** | https://orange-moss-08f7c2d0f.7.azurestaticapps.net | 2026-08-24 |
+| **Shell** | https://gentle-moss-010767c0f.7.azurestaticapps.net | 2026-08-24 |
+
+Azure Static Web Apps, deployed by `angular-app.yml` on every push to `main`. ⚠️ The `deploy`
+input **defaults to `true`**, so a front end is published unless it opts out — which is why
+these exist without anyone deciding to publish them recently.
+
+**`mc-field` is not here, deliberately**: it passes `deploy: false`. It is a native app, and a
+web build of it on a public URL would be a second way to reach the platform that nobody
+designed, tested or version-gated.
+
+### ⚠️ What "deployed" does and does not mean here
+
+| | |
+|---|---|
+| ✅ The front ends are live and public | Anyone with the URL loads the app |
+| ⚠️ **There is no backend behind them** | No Azure Container App, no database, no gateway. Every API call from these pages fails |
+| ⚠️ **They are old** | Dashboards predates MC-427, MC-342, MC-343 and MC-702. Templates and Shell are from August |
+| ⚠️ **Public, and not access-controlled** | Static Web Apps serves them to anyone. There is no data behind them, so nothing leaks — but a stakeholder handed one of these URLs sees a broken app, not a demo |
+
+**So these are not demo links.** They prove the pipeline works end to end. Sending one to a
+partner would show an app that renders its shell and then fails every request.
+
+The statement *"nothing is deployed"* appears in several documents. It is **correct about the
+backend and about Azure resources**, and it was wrong as a blanket claim — corrected where it
+was too broad.
+
+---
+
+## 2. Repositories
 
 All under [`github.com/rachidpeaqock`](https://github.com/rachidpeaqock), all **private**.
 
@@ -39,7 +75,7 @@ All under [`github.com/rachidpeaqock`](https://github.com/rachidpeaqock), all **
 
 ---
 
-## 2. The documents that matter
+## 3. The documents that matter
 
 All in [`mc-platform-infra/docs`](https://github.com/rachidpeaqock/mc-platform-infra/tree/main/docs):
 
@@ -48,7 +84,7 @@ All in [`mc-platform-infra/docs`](https://github.com/rachidpeaqock/mc-platform-i
 | [sprint-plan.md](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/docs/sprint-plan.md) | **The system of record.** Every sprint, every decision, every defect and why |
 | [platform-architecture.md](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/docs/platform-architecture.md) | Service decomposition, communication, infrastructure |
 | [backend-architecture.md](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/docs/backend-architecture.md) | Per-service internals, the endpoint catalogue |
-| [azure-deployment-plan.md](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/docs/azure-deployment-plan.md) | Schema, resources, cost. ⚠️ Nothing in it is deployed |
+| [azure-deployment-plan.md](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/docs/azure-deployment-plan.md) | Schema, resources, cost. ⚠️ No Azure *backend* resource in it exists — see §1 for what does |
 
 And in [`mc-concept/docs`](https://github.com/rachidpeaqock/mc-concept/tree/main/docs):
 
@@ -59,7 +95,7 @@ And in [`mc-concept/docs`](https://github.com/rachidpeaqock/mc-concept/tree/main
 
 ---
 
-## 3. ⚠️ Published artifact pages — most are stale
+## 4. ⚠️ Published artifact pages — most are stale
 
 These were published to `claude.ai` and **are not updated when the repo changes.** Dates are when
 each was last published; the documents behind them have moved a long way since.
@@ -85,7 +121,7 @@ are not mistaken for this project.)*
 
 ---
 
-## 4. CI
+## 5. CI
 
 Each repo's runs are at `…/actions`, e.g.
 [mc-milestone-service/actions](https://github.com/rachidpeaqock/mc-milestone-service/actions).
@@ -106,7 +142,7 @@ gh run download <run-id> -n mc-<service>-openapi -D /tmp/spec
 
 ---
 
-## 5. Running it locally
+## 6. Running it locally
 
 ```bash
 cd mc-platform-infra && docker compose up -d
@@ -135,7 +171,7 @@ Published contracts: [milestone 2.7.0](https://github.com/rachidpeaqock/mc-miles
 
 ---
 
-## 6. Azure / Entra identifiers
+## 7. Azure / Entra identifiers
 
 Not secrets — every one of these appears in an issued token or a public discovery document.
 
@@ -152,7 +188,7 @@ with an error mentioning nothing about token versions.
 
 ---
 
-## 7. External sources
+## 8. External sources
 
 ### ✅ Verified — opened and confirmed to say what is claimed
 

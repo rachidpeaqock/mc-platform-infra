@@ -2,10 +2,17 @@
 
 **Status:** planning · **Written:** 2026-08-14 · **Last reconciled against the code:** 2026-09-07
 
-> ⚠️ **Nothing in this plan has been deployed.** No Azure subscription is in use, no resource
-> in §10 exists, and no cost in §11 has been incurred. Twelve sprints of the system in §3 run
-> as containers on a laptop and in CI. Read this as a costed intention, not a description —
-> and note that §11 has never been tested against a bill.
+> ⚠️ **Almost nothing in this plan has been deployed** — corrected 2026-09-13, because the
+> earlier blanket claim was wrong.
+>
+> **What is live:** three Azure Static Web Apps — Dashboards, Templates and Shell — published
+> by `angular-app.yml` on every push to `main`, because its `deploy` input defaults to true.
+> URLs are in [`links.md`](./links.md). They are public, they answer 200, and **they have no
+> backend**: every API call from them fails. They prove the pipeline, not the product.
+>
+> **What is not:** no Container App, no PostgreSQL Flexible Server, no Key Vault, no registry,
+> no Blob storage. No cost in §11 has been tested against a bill. The backend in §3 runs only
+> as containers on a laptop and in CI.
 
 > **Superseded on topology, cost and roadmap** by [`platform-architecture.md`](./platform-architecture.md) (2026-08-15): the product is now three separate front-end apps in three repos over a microservices backend. **Still authoritative here:** the gap analysis (§2), database schema (§4), endpoint contract (§5), auth model (§7), the working-day calendar problem (§8), and concurrency/offline (§9) — none of which change with decomposition.
 >
