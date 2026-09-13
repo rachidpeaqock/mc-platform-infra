@@ -2257,6 +2257,63 @@ path that `identity-service` proved yesterday is now the normal way to change th
 
 ---
 
+### MC-425 — a project's site, so a recorded position means something · 5 pts · ✅ **Done**
+
+MC-422 shipped the honest half: the position is recorded and a human reading the trail can see
+it. It could **not** say whether that position was on site, because `project.location` is free
+text and no coordinate existed anywhere to compare against.
+
+⚠️ **Deferred to Sprint 15 as "the templates service's job" — the same mistake MC-338 just
+corrected.** `project` is a table in this service.
+
+| Decision | Why |
+|---|---|
+| **`distance_m()` in SQL**, not Java | The V2 argument about variance: the moment two clients can each decide what "on site" means, they will disagree, and **the disagreement will be about somebody's honesty** |
+| Haversine, not PostGIS | A heavy extension for one number. The question is "200 m or 40 km", not "1.02 m or 1.03 m" |
+| ⚠️ **`SiteCheck` is a sibling of `Position`, not fields on it** | `Position` is what the phone reported and a client also *sends* it. A server-computed verdict living there raises the question of what happens when a client sends one — a question worth never having. Verified in the published spec: `Position` still carries exactly three fields |
+| ⚠️ **Three states, never two** | `siteCheck` is null with no position *and* null with no boundary. Neither is "outside". Rendering an unconfigured project as outside would accuse every crew on it |
+| The boundary is **inclusive**, rounded before comparing | A reader seeing "500 m" against a 500 m radius and a red flag would reasonably conclude the check was broken |
+| A radius over **50 km is refused** | It would make every position count as on site — a green tick that means nothing, which is worse than no boundary, because green ticks that mean nothing stop being read |
+| `PUT` is **ADMIN only** — tighter than MC-338's structure endpoints | Widening the radius makes every past entry compliant; moving the centre makes a crew look like they were never there. Not within reach of whoever is measured by it |
+
+⚠️ **None of this makes a position proof.** It is self-reported by a device and trivially
+spoofed, as MC-422 already recorded. A boundary turns *"here is a coordinate"* into *"here is a
+coordinate, 41 km from site"* — **a question worth asking, never a verdict.**
+
+#### ⚠️ The bug 210 passing tests did not catch
+
+Three tests failed with `BadSqlGrammar` on `distance_m(?, ?, ?, ?)` — which reads like a syntax
+error and is an **overload-resolution** one.
+
+Postgres casts `numeric → float8` **implicitly**, but `float8 → numeric` only on **assignment**.
+The columns are `numeric(9,6)`, so `numeric` looked like the obvious signature — and it works
+perfectly for the production query, which passes those columns. It cannot work for *any* caller
+binding a Java `Double`.
+
+**So the function was unusable from anywhere except a numeric column, and 210 tests passed
+while that was true.** The only callers that bind values directly are the arithmetic tests,
+which is the argument for their existing at all: a distance function nobody checks against a
+known figure will return a confident wrong answer, and every downstream verdict inherits it.
+Checked against Paris–London, 343.5 km — verifiable against any external source.
+
+⚠️ **V11 was edited in place rather than superseded.** Normally forbidden — Flyway records a
+checksum and an edited migration breaks every database that already ran it. Correct here
+because V11 was twenty minutes old, nothing is deployed, and the only database that had run it
+was a throwaway CI container. A V12 would also have been *wrong*: `CREATE OR REPLACE` with a
+different signature creates a **second overload** rather than replacing, so anyone who had run
+V11 would end up with two functions and an ambiguous call.
+
+✅ **No new gateway prefix.** Both paths nest under `/api/v1/projects/**`, unlike MC-338's flat
+ones — whether an endpoint needs a gateway change depends entirely on whether it nests under
+something already claimed.
+
+| | Before | After |
+|---|---|---|
+| `mc-milestone-service` tests | 197 | **214** |
+| Contract | 2.7.0 | **2.8.0** |
+
+---
+
 ### ⚠️ Deferred to the manual test phase — not blockers, and not to be re-listed
 
 Agreed 2026-09-08: **the human-dependent work happens together at the end**, as one manual
@@ -2286,7 +2343,7 @@ however many times the phone retries.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **197 tests**, twelve against Azurite over the real Blob API. Contract **2.7.0** |
+| `mc-milestone-service` | **214 tests**, twelve against Azurite over the real Blob API. Contract **2.8.0** |
 | `mc-api-gateway` | **40 tests** — version gate, routing, rate limiting, timeouts, fallback |
 | `mc-identity-service` | **18 tests** — JIT provisioning, batch resolve, boundaries, contract. Pinned at **1.0.0** |
 | `mc-dashboards` | **64 browser assertions**, in CI |
