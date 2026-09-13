@@ -456,7 +456,7 @@ real.
 |---|---|---|---|
 | **MC-335** | As **P2 (PM)**, I create, rename and delete milestones through the API, so the PM view can leave localStorage entirely. | 8 | ✅ **Done** — `POST /milestones`, `PATCH /milestones/{id}`, `DELETE /milestones/{id}`. Edit carries **neither date**: moving the forecast needs a reason, moving the baseline needs a justification and a different role, so an edit endpoint that accepted a date would be a way around both. Delete is soft — the audit trail references the row and outlives it. |
 | **MC-336** | As **P2 (PM)**, I see a milestone's slip history, so the reason badge shows what actually caused the delay. | 3 | ✅ **Done, the smaller way.** The last reason — code, label and hue — is carried on each exposure row rather than adding a history endpoint the exec screen would only reduce to its final entry. The hue travels with it, so adding a reason category server-side needs no client change. |
-| **MC-338** | As a **planner**, I create and rename phases and work packages, so a new project can be structured without SQL. | 5 | ➡️ **Sprint 15**, with the templates service. Found while building MC-335. Creating a milestone needs a `workPackageId`, and the only way to get a work package that does not already exist is a manual `INSERT`. Deliberately not folded into MC-335: creating the containing structure implicitly from names would make "Piping" typed twice with different capitalisation into two work packages, and nobody would notice until a report split in half. |
+| **MC-338** | As a **planner**, I create and rename phases and work packages, so a new project can be structured without SQL. | 5 | ✅ **Done in Sprint 14**, and **not** with the templates service — `phase` and `work_package` are milestone-service tables; a template *instantiates* them. The deferral below was wrong for six sprints. *(original note follows)* Found while building MC-335. Creating a milestone needs a `workPackageId`, and the only way to get a work package that does not already exist is a manual `INSERT`. Deliberately not folded into MC-335: creating the containing structure implicitly from names would make "Piping" typed twice with different capitalisation into two work packages, and nobody would notice until a report split in half. |
 | **MC-337** | As a **field user**, replaying a queued update after a lost response does **not** write a second audit entry. | 5 | ✅ **Done, ahead of Sprint 11 rather than during it.** `Idempotency-Key` header, keyed by `(actor, key)`, claimed with `INSERT … ON CONFLICT DO NOTHING` so check and claim are one statement. Keys expire after 30 days on the existing hourly sweep. |
 | **MC-339** | As **P2 (PM)**, I read one milestone's **delay log and re-baseline history** in the detail drawer, so I can see what actually happened to it rather than only that it is late. | 5 | ➡️ **Sprint 11.** Found while swapping the PM tree. The drawer's largest panel had no data behind it. MC-336 solved the *exec* badge by carrying the last reason on each exposure row, which is one label; the drawer needs the sequence. The server holds the trail and no endpoint reads it per milestone. **The drawer now says so rather than falling back to the prototype's "No changes — real date still equals scheduled", which would have been a lie on every milestone that has slipped.** |
 | **MC-340** | As **P2 (PM)**, I see a milestone's **predecessors**, so the dependency panel says what this milestone is waiting on. | 3 | ➡️ **Sprint 11.** Found while swapping the PM tree. Nothing the API returns points upstream. Successors were recoverable for free — `GET /impact` is the transitive closure with a depth on each row, so depth 1 *is* the direct successors, and the drawer renders them from the walk it already fetches. There is no equivalent walking the other way. |
@@ -665,7 +665,7 @@ tried".
 
 | Carried out of Sprint 9 | To | Why |
 |---|---|---|
-| **MC-338** phase / work-package creation | **Sprint 15** | It is the templates service's job. Sprint 15 builds project structure from templates, and building a second structure editor in the PM screen first would mean two ways to create a work package before there is one good one. Nothing is blocked meanwhile — the tree endpoint returns work-package ids, so milestones can be created in any package that exists. |
+| **MC-338** phase / work-package creation | ~~Sprint 15~~ ✅ **done in 14** | ⚠️ **The reason given here was wrong.** *(original follows)* It is the templates service's job. Sprint 15 builds project structure from templates, and building a second structure editor in the PM screen first would mean two ways to create a work package before there is one good one. Nothing is blocked meanwhile — the tree endpoint returns work-package ids, so milestones can be created in any package that exists. |
 | **MC-339** per-milestone history | **Sprint 11** | The drawer's largest panel says it has no data instead of inventing some, which is correct but not finished. Sprint 11 rather than 10 because Field's offline outbox makes "what happened to this milestone" a question a *second* client asks, and one endpoint should answer both. |
 | **MC-340** predecessors | **Sprint 11** | Rides with MC-339: the same drawer, the same fetch-on-selection, and the dependency panel currently hardcodes `FS` as the link type, which is its own small lie to fix. |
 | **MC-341** S-curve anchored to project dates | **Sprint 11** | Two dates on `GET /projects/{id}` and the last use of the seed constant on the exec screen goes. Small, and grouped with the other read-path gaps so the contract changes once. |
@@ -1309,7 +1309,7 @@ have leaned on. Silence is not an acceptable answer to "did that work".
 
 | ID | Story | Pts | Status |
 |---|---|---|---|
-| **MC-425** | As **P5 (admin)**, a project carries its **site coordinates and a radius**, so an update recorded 40 km away can be told apart from one recorded at the gantry. | 5 | ⬜ **To do — found while building MC-422.** The story was outlined as "GPS site *verification*", and verification is not possible: `project.location` is free text (`'Pointe-Sable Terminal'`) and there is no coordinate anywhere to compare a fix against. What shipped is the half that is real — the position is *recorded*, and a human reading the trail can see it. Comparing it to a boundary needs the boundary, which is planner data nobody has entered and no endpoint accepts. |
+| **MC-425** | As **P5 (admin)**, a project carries its **site coordinates and a radius**, so an update recorded 40 km away can be told apart from one recorded at the gantry. | 5 | ✅ **Done in Sprint 14.** *(original note follows)* ⬜ Found while building MC-422. The story was outlined as "GPS site *verification*", and verification is not possible: `project.location` is free text (`'Pointe-Sable Terminal'`) and there is no coordinate anywhere to compare a fix against. What shipped is the half that is real — the position is *recorded*, and a human reading the trail can see it. Comparing it to a boundary needs the boundary, which is planner data nobody has entered and no endpoint accepts. |
 
 ### MC-423 — the privacy screen, and the story it refused to be
 
@@ -1504,7 +1504,7 @@ whether it is a catch block or an error message.
 
 | Item | To | Why |
 |---|---|---|
-| **MC-425** site coordinates and radius | **Sprint 15** | Verification needs a boundary, and a boundary is planner data. It belongs with the templates service, where project structure is created rather than assumed |
+| **MC-425** site coordinates and radius | ~~Sprint 15~~ ✅ **done in 14** | ⚠️ **Wrong for the same reason as MC-338**: `project` is a milestone-service table, so the boundary was never the templates service's to hold. *(original)* Verification needs a boundary, and a boundary is planner data |
 | **MC-426** biometric reveal | **later · Shipping** | It needs a third-party plugin and it only becomes a security control once the token is in Keychain/Keystore. It should land in the same change as secure storage, not before it |
 | **MC-215** tracing instrumentation | **Sprint 17** | Unchanged: tracing that cannot be observed cannot be verified |
 
@@ -1554,9 +1554,27 @@ gap is the standing risk in Epic E4, and it is not closed by this sprint.
 
 # Epic E7 — Identity service · Sprint 17
 
+✅ **Partly built in Sprint 13, ten sprints early** (MC-701/MC-702). Not opportunism: it was the
+only thing standing between the platform and showing a person's name anywhere, and the audit
+trail had carried actor ids with nothing able to resolve them since Sprint 6.
+
 **Goal:** authorization becomes a platform concern, so a fourth consumer is possible.
 
-Stories: extract `identity-service` with its own database · JIT user provisioning from Entra · **OAuth scopes alongside roles** · `client_credentials` for machine consumers with a service-account identity in the audit trail · **P6 story: a new app is onboarded with only an app registration, generated client and topic subscription — no core service modified.**
+| Story | |
+|---|---|
+| `identity-service` with its own database | ✅ **Built.** `app_user`, contract 1.0.0 pinned, 18 tests |
+| JIT user provisioning from Entra | ✅ **Built.** On any authenticated request, not just `/me` |
+| Batch id → name resolution | ✅ **Built**, and consumed by `mc-dashboards` in both the bell and the audit trail |
+| **OAuth scopes alongside roles** | ⬜ Not built. Authorization still reads Entra app roles from the token |
+| `client_credentials` for machine consumers | ⬜ Not built. No machine consumer exists |
+| `user_project_role` | ⚠️ **Deliberately not built** — nothing consults a per-project role, so it would be a second source of truth nobody reads. The same reasoning that parked MC-214 |
+
+⚠️ **What was built answers "who is this", never "may they".** The service validates its own
+token despite the gateway having done so, because every service is reachable directly on its
+own port and this is the one whose answers others will be tempted to trust. Making it an
+authorization authority is the unbuilt half, and it is the half that needs the scopes above.
+
+**MC-701 is the acceptance test for the whole platform thesis.** If onboarding a consumer needs a core change, a seam is missing.
 
 **MC-701 is the acceptance test for the whole platform thesis.** If onboarding a consumer needs a core change, a seam is missing.
 
@@ -2334,9 +2352,9 @@ comes due in that pass.
 
 ---
 
-## Where things actually stand · 2026-09-07 (Sprint 13 open)
+## Where things actually stand · 2026-09-13 (Sprint 14 open)
 
-**Sprints 0–12 complete. Epic E4 is finished bar shipping.** A crew lead can record an update with
+**Sprints 0–13 complete. Epic E4 finished bar shipping; E5 closed or parked; E7 built early.** A crew lead can record an update with
 no signal, photograph the reason, walk back into coverage, and have all of it reach the project
 exactly once — with the position they were standing in when they recorded it, and no duplicate
 however many times the phone retries.
@@ -2354,11 +2372,37 @@ with MC-341; `mc-field` lost its own in Sprint 10; the reason catalogue is serve
 the "this reason needs a note" rule is a database column rather than a string literal in two
 languages.
 
-| # | What is next | Why |
+### Sprint 13 · closed
+
+| Story | Pts | |
 |---|---|---|
-| 1 | **Sprint 13 — the activity feed** (open; MC-427 done) | Epic E5: `activity-service` with its own database, a Kafka consumer, and MC-342's notification bell, which has been **explicitly empty since Sprint 9** and must not be a surprise. MC-214's schema registry lands here too, finally with a real event to gate |
-| 2 | **Install the APK on a phone** | The first thing in this project that can be. Everything in Sprint 12 is written against Capacitor's web fallbacks, and one real device run will find things nothing in CI can |
-| 3 | The dev-seed `oid` swap | One `UPDATE`. Needs your Entra object id; until it runs a real Field sign-in correctly sees an empty list |
+| **MC-427** preview uses the project's thresholds | 3 | ✅ Done |
+| **MC-342** activity feed and notification bell | 3 | ✅ Done — **without** `activity-service` or Kafka |
+| **MC-343** exec numbers refresh after a write | 3 | ✅ Done — pulled forward from Sprint 14 |
+| **MC-702** identity-service, and names on screen | — | ✅ Done — E7 built ten sprints early |
+| **MC-430** three endpoints the gateway could not reach | — | ✅ Found and fixed |
+| **B14** rate limiting, timeouts, circuit breaker | — | ✅ Done bar caching, which was argued away |
+| **MC-214** schema registry · **MC-501/502** activity-service, Kafka | 5+ | ⚠️ **Parked against a trigger**, not a date |
+
+### Sprint 14 · open
+
+| Story | Pts | |
+|---|---|---|
+| **MC-338** structure without SQL | 5 | ✅ Done |
+| **MC-425** site boundary, and a position that means something | 5 | ✅ Done |
+| Surface `siteCheck` in the Dashboards drawer | — | ⬜ Next. The data exists and nothing renders it — the same gap MC-702 closed for names |
+| Wire `mc-templates` to a real backend | — | ⬜ The last front end on a localStorage prototype |
+| `tenant_id` | — | ⬜ The largest architectural debt, and cheapest now while the tables are near-empty |
+
+⚠️ **Two stories this sprint were both deferred to Sprint 15 for the same wrong reason** — "it
+belongs with the templates service" — when `phase`, `work_package` and `project` are all
+milestone-service tables. **That misassignment blocked a planner from starting a project without
+SQL for six sprints.**
+
+✅ **Checked, 2026-09-13: the rest of Sprint 15 and 16 is correctly placed.** `template` and
+`template_row` are genuinely `template-service`'s own tables and no other service owns them, so
+the library CRUD and the instantiate-from-template call belong exactly where they sit. MC-338
+and MC-425 were the two misassigned items, not a pattern running through the epic.
 
 ⚠️ **The standing risk, unchanged and worth restating at the end of the epic that created it.**
 Camera, GPS and the privacy cover are all exercised in a desktop Chromium against web fallbacks.
