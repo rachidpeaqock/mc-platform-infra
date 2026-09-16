@@ -99,12 +99,15 @@ jobs:
           }
           echo "OK: $JAR ($(du -h "$JAR" | cut -f1))"
 
-      - name: Upload jar
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.service-name }}-jar
-          path: target/*.jar
-          retention-days: 7
+      # ⚠️ The jar is deliberately NOT uploaded any more.
+      #
+      # It was, on every push, with 7-day retention — roughly 70 MB a time
+      # across four backend repos — and nothing consumed it: the publish
+      # job builds the image from source in a multi-stage Dockerfile and
+      # never downloads it. On 2026-09-16 the account's artifact storage
+      # quota filled, and a build whose 215 tests had all passed went red
+      # on the upload step. The image in GHCR is the deliverable; a jar
+      # nobody fetches is storage spent on nothing.
 
       # MC-213. Services that pin their API contract write the generated
       # spec to target/openapi.json during the test run. Publishing it here
@@ -116,14 +119,33 @@ jobs:
       # `if: always()` because the most useful time to have the spec is the
       # run where the contract check just failed. `if-no-files-found: ignore`
       # so services without an API (the registry, the gateway) are unaffected.
+      # ⚠️ continue-on-error, because this upload is a convenience and the
+      # tests above are the gate. A storage-quota blip on a few kilobytes
+      # of JSON must not turn a green build red — it did once, and the
+      # first symptom was a failed run with every test passing. When it
+      # does fail, the summary below says so rather than letting the
+      # bootstrap path for a contract baseline vanish silently.
       - name: Upload OpenAPI spec
+        id: spec
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.service-name }}-openapi
           path: target/openapi.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 14
+
+      - name: Note a failed spec upload
+        if: always() && steps.spec.outcome == 'failure'
+        run: |
+          {
+            echo "### ⚠️ OpenAPI spec was not uploaded"
+            echo
+            echo "The build is green; only the artifact upload failed (usually the"
+            echo "account's artifact storage quota). If you need this run's spec to"
+            echo "bootstrap a contract baseline, re-run the job once the quota clears."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Publishing images is what makes `docker compose up` work from anywhere —
   # a developer in a Codespace has one repo checked out, not nine, so compose
@@ -199,6 +221,13 @@ jobs:
 
       - name: Build and push
         uses: docker/build-push-action@v6
+        env:
+          # ⚠️ v6 uploads a ".dockerbuild" record as a workflow artifact
+          # on every run, unasked. Twenty-five of them were sitting in one
+          # repo's artifact storage when the account quota filled on
+          # 2026-09-16, and nothing had ever opened one. The image in GHCR
+          # is the record.
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           push: true
