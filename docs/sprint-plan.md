@@ -2369,6 +2369,28 @@ so four rendering states come from one fixture rather than four.
 
 ---
 
+### Tenancy — decided, guarded, and deliberately not built · ✅
+
+I recommended taking `tenant_id` this sprint *"while the tables are near-empty, because it gets
+harder with every row."* ⚠️ **That reasoning was imported from the option this platform should
+not choose.** Full record in [`tenancy.md`](./tenancy.md); the shape of it:
+
+| | |
+|---|---|
+| **What a tenant is** | A *contractor organisation*. The contractor's people and their client's engineers looking at the same project are one tenant, not two. A second tenant is a second contractor — a competitor who must never see the first one's delay reasons or claims file |
+| **The key** | Entra `tid`. Already settled by a decision made elsewhere: §7 chose B2B guests in the contractor's tenant, so every user of a contractor carries that contractor's `tid`, guests included. **Signed, in every token, nothing to store** |
+| **The model** | **A database per tenant**, not `tenant_id` + row-level security. The audit table is `REVOKE`d against `DELETE`; the isolation model must not be the one that asks that same table to police which rows a caller may see |
+| **Why it can wait** | Under database-per-tenant, **no table and no query changes** — the retrofit cost does not grow with rows. It grows with the short list of code holding a `DataSource` outside a request: the sweeper, the startup guard, Flyway, ShedLock, compose. Five items, all additive, written down |
+| **What enforces single tenancy today** | All three services pin `issuer-uri` to one tenant. A foreign token fails before any handler runs. **Enforced, not assumed** |
+| **The one guard built now** | `TenantBoundaryTest` fails the build if anyone changes the issuer to `/common` or `/organizations` before the routing datasource exists — because that is exactly the one-word change that would put every tenant's users in the first tenant's database, and nothing else would fail |
+| **Trigger** | The first customer outside the current Entra tenant. Not a sprint number — the same rule that parked MC-214 and `activity-service` |
+
+**So the debt was the open decision, not the missing column.** Closed at the cost of one document
+and one test, and the platform is no more expensive to make multi-tenant in a year than it is
+today — which is the sentence the recommendation should have led with.
+
+---
+
 ### ⚠️ Deferred to the manual test phase — not blockers, and not to be re-listed
 
 Agreed 2026-09-08: **the human-dependent work happens together at the end**, as one manual
@@ -2429,7 +2451,7 @@ languages.
 | **MC-425** site boundary, and a position that means something | 5 | ✅ Done |
 | Where an entry was recorded, in the drawer | — | ✅ Done — and it turned out to be **both** MC-422's position and MC-425's verdict; see below |
 | Wire `mc-templates` to a real backend | — | ⬜ The last front end on a localStorage prototype |
-| `tenant_id` | — | ⬜ The largest architectural debt, and cheapest now while the tables are near-empty |
+| `tenant_id` | — | ✅ **Decided, not built** — and the "cheapest now" reasoning was wrong; see below |
 
 ⚠️ **Two stories this sprint were both deferred to Sprint 15 for the same wrong reason** — "it
 belongs with the templates service" — when `phase`, `work_package` and `project` are all

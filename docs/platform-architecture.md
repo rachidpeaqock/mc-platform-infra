@@ -33,11 +33,15 @@ Twelve sprints. What this document describes, against what is running.
 
 ### 0b. Three gaps worth naming rather than discovering
 
-**⚠️ There is no `tenant_id`.** Every document in this repo assumes multi-tenant isolation; the
-schema has none, because the platform runs one project for one organisation and an isolation column
-added before there is a second tenant is speculative. **It must be settled before customer two, not
-after** — either a `tenant_id` on every table with row-level security, or a database per tenant. It
-is a schema change, and schema changes get harder with every row.
+**✅ There is no `tenant_id`, and on 2026-09-16 that became a decision rather than a gap.** See
+[`tenancy.md`](./tenancy.md). Tenant = contractor organisation, keyed on the Entra `tid` that the
+B2B-guest choice in §7 already puts in every token; isolation is **a database per tenant**, not a
+column plus row-level security — chosen because the retrofit cost of that model does not grow
+with rows, only with the short list of code that holds a `DataSource` outside a request. Today's
+single tenancy is *enforced*, not assumed: all three services pin `issuer-uri` to one tenant, and
+`TenantBoundaryTest` fails the build if anyone loosens it before the routing datasource exists.
+The build waits for its trigger — the first customer outside the current Entra tenant — by the
+same rule that parked MC-214.
 
 **`mc-api-client` does not exist, and the wire types are duplicated by choice.** §3 lists a generated
 client package. Two hand-written copies of the response types exist instead, one per consuming app.
