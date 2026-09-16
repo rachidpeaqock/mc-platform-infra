@@ -2332,6 +2332,43 @@ something already claimed.
 
 ---
 
+### The trail shows where an entry was recorded · ✅ **Done**
+
+⚠️ **A finding first.** The dashboards client had **never modelled `position`**. MC-422 has
+stored where a phone was standing since Sprint 12, and the plan said *"the position is recorded,
+and a human reading the trail can see it"* — **nobody could.** The type did not carry it and the
+drawer did not draw it. MC-425's `siteCheck` would have been invisible the same way. So what
+looked like "render one new field" was rendering two, one of which had been dark for two sprints.
+
+**Four states, one function.** Pre-rendered in `whereRecorded()` rather than branched in the
+template, because four-way branching is exactly what a template gets wrong quietly:
+
+| State | Rendered as |
+|---|---|
+| No position | *nothing* — a PM at a desk has no position and is not doing anything wrong |
+| Position, no boundary | `position recorded` |
+| On site | `on site · 340 m from centre` |
+| Off site | `41 km from site` |
+
+⚠️ **Off site is set apart by weight only, never by colour.** The harness reads the *computed*
+colour and asserts it is not `--red-text`. Red would turn a self-reported, trivially spoofed
+coordinate into an accusation on the way to the screen; the server records `siteCheck` as a
+question and the trail must not upgrade it to a verdict. The wording follows the same rule — a
+distance, stated plainly, no "flagged", no icon that means alarm.
+
+⚠️ **No boundary is not "outside".** Asserted directly: the no-boundary case contains `position
+recorded` and does not contain the word *site* at all, because rendering an unconfigured
+project as off-site would accuse every crew on every project nobody has set up yet.
+
+The stub drives the verdict off `historyMode` — `onsite`, `noboundary`, or the default off-site —
+so four rendering states come from one fixture rather than four.
+
+| | Before | After |
+|---|---|---|
+| `mc-dashboards` browser assertions | 64 | **69** |
+
+---
+
 ### ⚠️ Deferred to the manual test phase — not blockers, and not to be re-listed
 
 Agreed 2026-09-08: **the human-dependent work happens together at the end**, as one manual
@@ -2364,7 +2401,7 @@ however many times the phone retries.
 | `mc-milestone-service` | **214 tests**, twelve against Azurite over the real Blob API. Contract **2.8.0** |
 | `mc-api-gateway` | **40 tests** — version gate, routing, rate limiting, timeouts, fallback |
 | `mc-identity-service` | **18 tests** — JIT provisioning, batch resolve, boundaries, contract. Pinned at **1.0.0** |
-| `mc-dashboards` | **64 browser assertions**, in CI |
+| `mc-dashboards` | **69 browser assertions**, in CI |
 | `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
 
 **No client on this platform holds domain data any more.** `mc-dashboards` lost the last of its seed
@@ -2390,7 +2427,7 @@ languages.
 |---|---|---|
 | **MC-338** structure without SQL | 5 | ✅ Done |
 | **MC-425** site boundary, and a position that means something | 5 | ✅ Done |
-| Surface `siteCheck` in the Dashboards drawer | — | ⬜ Next. The data exists and nothing renders it — the same gap MC-702 closed for names |
+| Where an entry was recorded, in the drawer | — | ✅ Done — and it turned out to be **both** MC-422's position and MC-425's verdict; see below |
 | Wire `mc-templates` to a real backend | — | ⬜ The last front end on a localStorage prototype |
 | `tenant_id` | — | ⬜ The largest architectural debt, and cheapest now while the tables are near-empty |
 
