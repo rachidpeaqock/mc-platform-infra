@@ -7,8 +7,8 @@ Companion to [`azure-deployment-plan.md`](./azure-deployment-plan.md), which cov
 **Status:** partly built · **Written:** 2026-08-14 · **Last reconciled against the code:** 2026-09-07
 
 **Repos that exist:** `mc-discovery-server`, `mc-api-gateway`, `mc-milestone-service`,
-`mc-identity-service`.
-**Designed, not created:** `mc-activity-service`, `mc-template-service`.
+`mc-identity-service`, `mc-template-service`.
+**Designed, not created:** `mc-activity-service`.
 
 > ⚠️ **Read this document as two things at once.** Sections marked ✅ have been reconciled
 > against the code and describe what runs; sections marked ⚠️ describe a design that was not
@@ -696,9 +696,9 @@ pattern to render a date picker that skips non-working days. Only the writes are
 | `DELETE` | `/milestones/{m}/dependencies/{s}` | `pm`, `planner` | |
 | `GET` | `/projects/{p}/events` | any member | `?since=&limit=` — replaces the in-memory 50-item slice |
 | `GET` | `/projects/{p}/summary` | any member | Exec dashboard in **one** query: counts, S-curve series, days-lost-by-reason, top exposure |
-| `GET` | `/templates` · `/templates/{t}` | `planner`, `pm`, `admin` | |
-| `POST` `PUT` `DELETE` | `/templates…` | `planner`, `admin` | |
-| `POST` | `/templates/{t}/instantiate` | `planner`, `admin` | Template → real project, offsets resolved against a start date via the work calendar |
+| `GET` | `/templates` · `/templates/{t}` | any member | ✅ Built (contract 1.0.0). Any authenticated member, not only planner/PM/admin: a template is not secret, and a viewer choosing whether to ask for a project needs to see the library |
+| `POST` `PUT` | `/templates…` · `/templates/{t}/copies` | `planner`, `admin` | ✅ Built. `PUT` replaces the whole document and requires `If-Match` (409 `template.stale`, 428 without). ⚠️ **No `DELETE`**, deliberately — see `LibraryApi` in the service |
+| `POST` | `/templates/{t}/instantiate` | `planner`, `admin` | ⬜ Sprint 16. Template → real project, offsets resolved against a start date via the work calendar. Lives on `template-service` and calls `milestone-service`'s bulk endpoint |
 | `GET` | `/reason-codes` · `/calendars/{c}` | any member | Cacheable reference data |
 | `GET` | `/me` | authenticated | Profile, roles per project |
 | `GET`/`POST` | `/me/notifications/count` · `/seen` | authenticated | Replaces `localStorage['mc.notif.seen']` |

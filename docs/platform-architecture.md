@@ -19,7 +19,7 @@ Twelve sprints. What this document describes, against what is running.
 | | Designed | Built |
 |---|---|---|
 | **Front ends** | 4 (shell, dashboards, templates, field) | ✅ all four, Angular 20 + shared design system |
-| **Backend services** | 6 domain services + gateway + registry | ✅ `milestone`, `api-gateway`, `discovery` · ⬜ `activity`, `template`, `identity`, `ai`, `integration` |
+| **Backend services** | 6 domain services + gateway + registry | ✅ `milestone`, `identity`, `template`, `api-gateway`, `discovery` · ⬜ `activity`, `ai`, `integration` |
 | **Gateway + Eureka** | §8a | ✅ routing by `lb://`, Entra validation at the edge |
 | **Event backbone (Kafka)** | §8b | ⬜ nothing produces an event yet. Sprint 13 |
 | **Real-time fan-out** | Web PubSub | ⬜ Sprint 14 |

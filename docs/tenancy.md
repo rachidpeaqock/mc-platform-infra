@@ -91,15 +91,16 @@ a row being written today. **That is the whole reason this can wait.**
 
 ## 5. What is true today, and what already enforces it
 
-✅ **The platform is single-tenant, and that single tenancy is enforced at three places, not
-assumed.** All three services pin `issuer-uri` to one Entra tenant:
+✅ **The platform is single-tenant, and that single tenancy is enforced at four places, not
+assumed.** All four services pin `issuer-uri` to one Entra tenant (`template-service` carried
+the guard from its first commit):
 
 ```yaml
 issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
 ```
 
 A token issued by any other Entra tenant fails issuer validation at the gateway, at
-`milestone-service` and at `identity-service`, before any handler runs. **There is no code path
+`milestone-service`, at `identity-service` and at `template-service`, before any handler runs. **There is no code path
 today by which a second contractor's user reaches a query.** That is a real boundary, and it is
 why the absence of `tenant_id` has never been a defect — only a decision left open.
 

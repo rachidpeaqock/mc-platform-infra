@@ -7,6 +7,8 @@
 #   discovery-server   registry every service registers with
 #   api-gateway        single entry point, routes by lb:// name
 #   milestone-service  milestones, audit, calendar, dependency graph
+#   identity-service   who the people are (names for actor ids)
+#   template-service   the planner's library of reusable hierarchies
 #   postgres           one database per service (see init/)
 #   kafka              the event backbone (Event Hubs speaks this protocol)
 #   kafka-ui           browse topics and messages while developing
@@ -226,6 +228,47 @@ services:
     # reach identity renders rows without attribution, exactly as it did
     # before this service existed. That is deliberate, and it is why there
     # is no depends_on pointing here from milestone-service.
+    restart: on-failure:5
+
+  migrate-template:
+    image: flyway/flyway:11
+    profiles: [migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../mc-template-service/src/main/resources/db/migration:/flyway/sql/migration:ro
+      # The four templates the prototype shipped with. In src/test/resources
+      # so it can never reach a deployed environment; mounted here because
+      # an empty library is not much of a demo.
+      - ../mc-template-service/src/test/resources/db/dev:/flyway/sql/dev:ro
+    command: >
+      -url=jdbc:postgresql://postgres:5432/template_db
+      -user=template_svc
+      -password=template_svc
+      -locations=filesystem:/flyway/sql/migration,filesystem:/flyway/sql/dev
+      -connectRetries=10
+      migrate
+
+  template-service:
+    image: ghcr.io/rachidpeaqock/mc-template-service:main
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      EUREKA_URI: http://discovery-server:8761/eureka
+      DB_URL: jdbc:postgresql://postgres:5432/template_db
+      DB_USER: template_svc
+      DB_PASSWORD: template_svc
+    depends_on:
+      postgres:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    # Same rule as every service here: does not migrate its own database
+    # and fails until the schema exists. First run:
+    #
+    #   docker compose --profile migrate run --rm migrate-template
     restart: on-failure:5
 
   kafka-ui:

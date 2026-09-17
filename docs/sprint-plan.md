@@ -1547,8 +1547,8 @@ gap is the standing risk in Epic E4, and it is not closed by this sprint.
 
 | Sprint | Focus | Key stories |
 |---|---|---|
-| **15** | Library | `template-service` + own database · CRUD · tree-grid persistence · **per-template seeds with derived counts** (the prototype bug where every card opened the same 4-milestone starter) |
-| **16** | Instantiate | "Create project from template" as **one idempotent bulk call** to `milestone-service` · offsets resolved against a work calendar · all-or-nothing semantics |
+| **15** | Library | ✅ **Built in Sprint 14.** `template-service` + own database · list / read / create / save / copy · tree-grid persistence as a whole document with `If-Match` · **counts derived from the rows by the database**, so the prototype's bug (every card opened the same starter and claimed a different size) is impossible rather than fixed. Contract **1.0.0**, 28 tests. `mc-templates` rewired: 41 browser assertions against a stub of it |
+| **16** | Instantiate | ⬜ "Create project from template" as **one idempotent bulk call** to `milestone-service` · offsets resolved against a work calendar · all-or-nothing semantics. The button is present in the editor and **disabled with the reason in its tooltip** — not a button that opens the editor again, which is what the prototype did |
 
 ---
 
@@ -2411,25 +2411,30 @@ comes due in that pass.
 
 ---
 
-## Where things actually stand · 2026-09-13 (Sprint 14 open)
+## Where things actually stand · 2026-09-17 (Sprint 14 closed)
 
-**Sprints 0–13 complete. Epic E4 finished bar shipping; E5 closed or parked; E7 built early.** A crew lead can record an update with
-no signal, photograph the reason, walk back into coverage, and have all of it reach the project
-exactly once — with the position they were standing in when they recorded it, and no duplicate
-however many times the phone retries.
+**Sprints 0–14 complete. Epic E4 finished bar shipping; E5 closed or parked; E6's library half
+built; E7 built early.** A crew lead can record an update with no signal, photograph the reason,
+walk back into coverage, and have all of it reach the project exactly once — with the position
+they were standing in when they recorded it, and no duplicate however many times the phone
+retries. A planner can now build the shape of the next project in a library that is actually
+stored, and two planners editing the same template cannot silently overwrite each other.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **214 tests**, twelve against Azurite over the real Blob API. Contract **2.8.0** |
-| `mc-api-gateway` | **40 tests** — version gate, routing, rate limiting, timeouts, fallback |
+| `mc-milestone-service` | **215 tests**, twelve against Azurite over the real Blob API. Contract **2.8.0** |
+| `mc-api-gateway` | **46 tests** — version gate, routing (per built service), CORS policy, rate limiting, timeouts, fallback |
 | `mc-identity-service` | **18 tests** — JIT provisioning, batch resolve, boundaries, contract. Pinned at **1.0.0** |
+| `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
 | `mc-dashboards` | **69 browser assertions**, in CI |
 | `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
+| `mc-templates` | **41 browser assertions**, in CI |
 
-**No client on this platform holds domain data any more.** `mc-dashboards` lost the last of its seed
-with MC-341; `mc-field` lost its own in Sprint 10; the reason catalogue is served (MC-344) and even
-the "this reason needs a note" rule is a database column rather than a string literal in two
-languages.
+**No client on this platform holds domain data any more — and this time it is true.** The
+2026-09-13 version of this sentence overlooked `mc-templates`, which still carried four
+hierarchies as constants in a component file. Those are `template-service`'s dev seed now, with
+the prototype's seven people mapped to the roles they held, because a template's owner is a role
+and the person is chosen when it becomes a project.
 
 ### Sprint 13 · closed
 
@@ -2443,15 +2448,55 @@ languages.
 | **B14** rate limiting, timeouts, circuit breaker | — | ✅ Done bar caching, which was argued away |
 | **MC-214** schema registry · **MC-501/502** activity-service, Kafka | 5+ | ⚠️ **Parked against a trigger**, not a date |
 
-### Sprint 14 · open
+### Sprint 14 · closed 2026-09-17
 
 | Story | Pts | |
 |---|---|---|
 | **MC-338** structure without SQL | 5 | ✅ Done |
 | **MC-425** site boundary, and a position that means something | 5 | ✅ Done |
 | Where an entry was recorded, in the drawer | — | ✅ Done — and it turned out to be **both** MC-422's position and MC-425's verdict; see below |
-| Wire `mc-templates` to a real backend | — | ⬜ The last front end on a localStorage prototype |
+| Wire `mc-templates` to a real backend | — | ✅ **Done — by building `template-service`**, which is E6's Sprint 15 pulled forward. See below |
 | `tenant_id` | — | ✅ **Decided, not built** — and the "cheapest now" reasoning was wrong; see below |
+
+### The templates service, and three things the wiring found
+
+**A template is stored as the document a planner edits** — a flat, ordered list of rows whose
+hierarchy is implied by order — not as a phase/work-package/milestone tree with foreign keys.
+Nothing ever addresses one template row on its own, and the flat list is exactly what Sprint 16
+instantiates in one pass, so a normalised tree would have been three tables and two joins to
+answer questions nobody asks. Rows are replaced whole on save, guarded by `If-Match`: the second
+of two planners to save loses and is told who won and when, rather than silently overwriting
+somebody's afternoon. The rules a draft must satisfy (a milestone needs a work package above it; a
+predecessor is an *earlier milestone*, so the graph is acyclic by construction) are refused with
+the row number at save time, because the day they matter is a bulk instantiate failing halfway
+through a project.
+
+Deliberately absent, and pinned by the contract test: `DELETE`, and "create project from
+template". The second writes into another service and is Sprint 16.
+
+⚠️ **Three things the wiring found, none of them in the templates code:**
+
+1. **`PUT` was not in the gateway's CORS allow-list.** A browser preflights any `PUT`; a method
+   missing from `allowedMethods` is refused at the preflight, the real request is never sent, and
+   nothing server-side logs anything. The save would have failed with an opaque network error
+   while working perfectly from curl. Added, with `CorsPolicyTest` asserting every verb in use.
+2. **A refused request carried no CORS headers at all.** Found by that test's first version, which
+   asserted `ETag` exposure on a request and got nothing — because the request was a 401, and
+   Gateway's `globalcors` is applied when a route matches, which is *after* security has already
+   refused. Every expired token has been going out as a 401 a browser hides from the app: the web
+   apps saw "cannot reach the server" where they should have seen the 401 that sends a user back
+   to sign in. The security chain now applies the same policy, built from the same properties.
+   **This has been true since Sprint 4 and would have been the first bug reported by the first
+   real user whose token expired.**
+3. **The artifact storage quota is still full** and takes 6–12 hours to recalculate — which broke
+   the one path a brand-new service has to its first contract baseline. `java-service.yml` now
+   prints the spec into the job log between markers when the upload fails (the log is not subject
+   to the quota), and `angular-app.yml` skips the deploy rather than failing the build when the
+   `dist` upload fails. The template-service baseline came from that log.
+
+Also: the templates route was declared in Sprint 4 for a service that did not exist. `GatewayRoutingTest`
+now has a block per built service — including the bare `/api/v1/templates` collection, the path a
+`/**` suffix is most often assumed not to match. It does; that is no longer an assumption.
 
 ⚠️ **Two stories this sprint were both deferred to Sprint 15 for the same wrong reason** — "it
 belongs with the templates service" — when `phase`, `work_package` and `project` are all
