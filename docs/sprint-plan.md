@@ -2425,11 +2425,11 @@ dependency wired, all of it or none of it.
 | | |
 |---|---|
 | `mc-milestone-service` | **242 tests**, twelve against Azurite over the real Blob API. Contract **2.9.0** |
-| `mc-api-gateway` | **46 tests** — version gate, routing (per built service, bare collections included), CORS policy, rate limiting, timeouts, fallback |
+| `mc-api-gateway` | **50 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy, rate limiting, timeouts, fallback |
 | `mc-identity-service` | **18 tests** — JIT provisioning, batch resolve, boundaries, contract. Pinned at **1.0.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
-| `mc-dashboards` | **73 browser assertions**, in CI |
-| `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
+| `mc-dashboards` | **80 browser assertions**, in CI |
+| `mc-field` | **84 browser assertions**, in CI, plus an installable Android APK |
 | `mc-templates` | **57 browser assertions**, in CI |
 
 **No client on this platform holds domain data any more — and this time it is true.** The
@@ -2539,10 +2539,22 @@ non-browser caller (P6 import, Sprint 21) needs to instantiate.
 project's `ownerId` is a person. The person is assigned on the project — nothing in this sprint
 does that, and the milestone edit endpoint (MC-335) already can.
 
-**Opened, not built:** *a project picker*. `?project=` is the honest minimum, not a screen. Both
-`mc-dashboards` and `mc-field` still default to the seeded project; choosing from
-`GET /api/v1/projects` needs a picker in each, and `mc-field`'s is harder (a crew lead works on one
-project and a phone has no room for a list). **MC-440**, next sprint.
+**MC-440 — the project picker — ✅ built the same day**, in both apps, differently on purpose:
+
+| | Dashboards | Field |
+|---|---|---|
+| Where | A select beside the view segment, shown only when there is more than one project | A pill in the header, **always** shown — a crew lead should never guess whose milestones these are |
+| Remembered | Per browser session (`sessionStorage`) and on the URL, so a copied link lands on the same project | **On the device** (`localStorage`), survives an app restart, until changed — a phone belongs to one site |
+| On switch | Full store reload; exec and PM views follow without knowing | Full reload; **the outbox is untouched** — queued updates are keyed by milestone id, unique across projects |
+| Empty case | — | A project with nothing assigned to this user reads as empty, not broken: a project born from a template has no owners yet |
+
+And a fourth finding while opening it: **the gateway's `azure` profile listed only the milestones
+route.** A profile's `routes:` list replaces the default one, so the deployed gateway could not
+reach identity-service or template-service at all — every `/users` and `/templates` call would
+have 404'd at the edge while working locally. Fixed with the two routes and
+`AzureProfileRoutingTest`, which loads the profile the cloud runs. The URIs it points at
+(`http://ca-identity-service`, `http://ca-template-service`) follow the one Container App name that
+exists and are unverifiable until H4; the paths being claimed is the half a YAML file can get wrong.
 
 **The rules are enforced twice, on purpose.** template-service refuses a malformed draft when it is
 saved; milestone-service refuses a malformed structure when it is created. The second is not
