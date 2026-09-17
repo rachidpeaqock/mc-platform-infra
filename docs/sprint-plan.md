@@ -1548,7 +1548,7 @@ gap is the standing risk in Epic E4, and it is not closed by this sprint.
 | Sprint | Focus | Key stories |
 |---|---|---|
 | **15** | Library | ✅ **Built in Sprint 14.** `template-service` + own database · list / read / create / save / copy · tree-grid persistence as a whole document with `If-Match` · **counts derived from the rows by the database**, so the prototype's bug (every card opened the same starter and claimed a different size) is impossible rather than fixed. Contract **1.0.0**, 28 tests. `mc-templates` rewired: 41 browser assertions against a stub of it |
-| **16** | Instantiate | ⬜ "Create project from template" as **one idempotent bulk call** to `milestone-service` · offsets resolved against a work calendar · all-or-nothing semantics. The button is present in the editor and **disabled with the reason in its tooltip** — not a button that opens the editor again, which is what the prototype did |
+| **16** | Instantiate | ✅ **Built, 2026-09-17.** `POST /api/v1/projects` on `milestone-service` creates header, phases, work packages, milestones and dependencies **in one transaction**; offsets resolve to dates **in the database** with `add_work_days()`, the inverse of `biz_days()` on the same calendar, so a project born from a template has zero variance on every milestone by construction (240 offsets held to that property). `Idempotency-Key` spends on a project id minted before any row is written. Contract **2.9.0**. ⚠️ **Called by `mc-templates` directly, not by `template-service`** — see the Sprint 16 note |
 
 ---
 
@@ -2411,24 +2411,26 @@ comes due in that pass.
 
 ---
 
-## Where things actually stand · 2026-09-17 (Sprint 14 closed)
+## Where things actually stand · 2026-09-17 (Sprints 14 and 16 closed; E6 complete)
 
-**Sprints 0–14 complete. Epic E4 finished bar shipping; E5 closed or parked; E6's library half
-built; E7 built early.** A crew lead can record an update with no signal, photograph the reason,
+**Sprints 0–14 and 16 complete — E6 was pulled forward whole. Epic E4 finished bar shipping; E5
+closed or parked; E6 built; E7 built early.** A crew lead can record an update with no signal, photograph the reason,
 walk back into coverage, and have all of it reach the project exactly once — with the position
 they were standing in when they recorded it, and no duplicate however many times the phone
-retries. A planner can now build the shape of the next project in a library that is actually
-stored, and two planners editing the same template cannot silently overwrite each other.
+retries. A planner can build the shape of the next project in a library that is actually stored,
+two planners editing the same template cannot silently overwrite each other, **and a template
+becomes a real project in one click** — every milestone dated by the project's own calendar, every
+dependency wired, all of it or none of it.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **215 tests**, twelve against Azurite over the real Blob API. Contract **2.8.0** |
-| `mc-api-gateway` | **46 tests** — version gate, routing (per built service), CORS policy, rate limiting, timeouts, fallback |
+| `mc-milestone-service` | **242 tests**, twelve against Azurite over the real Blob API. Contract **2.9.0** |
+| `mc-api-gateway` | **46 tests** — version gate, routing (per built service, bare collections included), CORS policy, rate limiting, timeouts, fallback |
 | `mc-identity-service` | **18 tests** — JIT provisioning, batch resolve, boundaries, contract. Pinned at **1.0.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
-| `mc-dashboards` | **69 browser assertions**, in CI |
+| `mc-dashboards` | **73 browser assertions**, in CI |
 | `mc-field` | **77 browser assertions**, in CI, plus an installable Android APK |
-| `mc-templates` | **41 browser assertions**, in CI |
+| `mc-templates` | **57 browser assertions**, in CI |
 
 **No client on this platform holds domain data any more — and this time it is true.** The
 2026-09-13 version of this sentence overlooked `mc-templates`, which still carried four
@@ -2510,6 +2512,42 @@ case, so the day it lands the file shrinks to its last line. Field's web build a
 Also: the templates route was declared in Sprint 4 for a service that did not exist. `GatewayRoutingTest`
 now has a block per built service — including the bare `/api/v1/templates` collection, the path a
 `/**` suffix is most often assumed not to match. It does; that is no longer an assumption.
+
+### Sprint 16 · closed 2026-09-17 — a template becomes a project
+
+| Story | |
+|---|---|
+| `POST /api/v1/projects` — a project created whole, all-or-nothing, `Idempotency-Key` | ✅ milestone-service, contract 2.9.0 |
+| Offsets resolved against the project's work calendar, **in the database** | ✅ `add_work_days()`, inverse of `biz_days()`; `AddWorkDaysTest` holds the round trip for 240 offsets across a six-day week with holidays |
+| `GET /api/v1/projects`, `GET /api/v1/projects/{id}` | ✅ A second project now exists; something has to be able to see that |
+| "Create project" in `mc-templates` | ✅ A sheet: name, code (suggested from the name), client, contractor, location, start date, calendar from `GET /calendars`, thresholds. Shows what it will build before it does. 409 `code.duplicate` lands beside the code field. One `Idempotency-Key` per open, reused on retry |
+| "Open Dashboards" **on the new project** | ✅ `mc-dashboards` reads `?project=<id>`, remembered per session. Without this the link would have landed on the seeded project and told the planner their new one did not exist |
+| `project.template_id`, `created_by`, `created_at` | ✅ V12. A project remembers its template; a template does not remember its projects |
+
+⚠️ **One decision differs from the plan, and it should be said plainly.** The architecture had
+`template-service` make the instantiate call into `milestone-service` (sync REST, idempotent). It
+is made by **`mc-templates`, directly, with the planner's token**. Two reasons: a service-to-service
+call needs a machine identity, and E7's `client_credentials` is unbuilt — building it for one call
+would have been the ceremony-before-a-consumer this plan keeps refusing; and the all-or-nothing
+guarantee was always going to live in milestone-service's transaction regardless of who asked for
+it. What is lost is a single server-side "instantiate" verb; what is kept is that the audit trail
+records the planner, not a service principal. `template-service` therefore has no dependency on
+any other service, which is the cleaner shape while there are two of them. Revisit when a
+non-browser caller (P6 import, Sprint 21) needs to instantiate.
+
+**`owner` does not travel from a template to a project.** A template's owner is a role label; a
+project's `ownerId` is a person. The person is assigned on the project — nothing in this sprint
+does that, and the milestone edit endpoint (MC-335) already can.
+
+**Opened, not built:** *a project picker*. `?project=` is the honest minimum, not a screen. Both
+`mc-dashboards` and `mc-field` still default to the seeded project; choosing from
+`GET /api/v1/projects` needs a picker in each, and `mc-field`'s is harder (a crew lead works on one
+project and a phone has no room for a list). **MC-440**, next sprint.
+
+**The rules are enforced twice, on purpose.** template-service refuses a malformed draft when it is
+saved; milestone-service refuses a malformed structure when it is created. The second is not
+redundant: `POST /projects` accepts structures from anywhere — typed, imported, copied — and a
+template that predates a rule would be refused with the row named rather than instantiated wrong.
 
 ⚠️ **Two stories this sprint were both deferred to Sprint 15 for the same wrong reason** — "it
 belongs with the templates service" — when `phase`, `work_package` and `project` are all

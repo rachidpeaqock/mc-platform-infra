@@ -698,7 +698,8 @@ pattern to render a date picker that skips non-working days. Only the writes are
 | `GET` | `/projects/{p}/summary` | any member | Exec dashboard in **one** query: counts, S-curve series, days-lost-by-reason, top exposure |
 | `GET` | `/templates` · `/templates/{t}` | any member | ✅ Built (contract 1.0.0). Any authenticated member, not only planner/PM/admin: a template is not secret, and a viewer choosing whether to ask for a project needs to see the library |
 | `POST` `PUT` | `/templates…` · `/templates/{t}/copies` | `planner`, `admin` | ✅ Built. `PUT` replaces the whole document and requires `If-Match` (409 `template.stale`, 428 without). ⚠️ **No `DELETE`**, deliberately — see `LibraryApi` in the service |
-| `POST` | `/templates/{t}/instantiate` | `planner`, `admin` | ⬜ Sprint 16. Template → real project, offsets resolved against a start date via the work calendar. Lives on `template-service` and calls `milestone-service`'s bulk endpoint |
+| `POST` | `/projects` | `planner`, `admin` | ✅ **Sprint 16, on milestone-service** (contract 2.9.0). A project created whole — phases, work packages, milestones with `offsetDays`, dependencies by `ref` — in one transaction; offsets resolve to dates in the database (`add_work_days()`); `Idempotency-Key`. ⚠️ Replaces the designed `/templates/{t}/instantiate`: the client turns the template into this structure and calls it with the planner's token, so no service-to-service identity is needed. See sprint-plan Sprint 16 |
+| `GET` | `/projects` · `/projects/{p}` | any member | ✅ Sprint 16. Headers with counts |
 | `GET` | `/reason-codes` · `/calendars/{c}` | any member | Cacheable reference data |
 | `GET` | `/me` | authenticated | Profile, roles per project |
 | `GET`/`POST` | `/me/notifications/count` · `/seen` | authenticated | Replaces `localStorage['mc.notif.seen']` |

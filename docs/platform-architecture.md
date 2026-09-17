@@ -441,7 +441,7 @@ If any of those can commit without the others, you have a milestone whose date m
 |---|---|---|
 | Front end → any service | REST via Front Door, bearer token | One origin, no CORS |
 | `milestone-service` → everything else | **Async, Kafka** (Event Hubs) | Fire-and-forget; milestone writes must not fail because a consumer is down |
-| `template-service` → `milestone-service` (instantiate) | **Sync REST**, idempotent, `Idempotency-Key` | The planner is waiting for a result; a 30-milestone create is one bounded call |
+| ~~`template-service` → `milestone-service` (instantiate)~~ **`mc-templates` → `milestone-service`** | **Sync REST**, idempotent, `Idempotency-Key` | The planner is waiting for a result; a 30-milestone create is one bounded call. ✅ Built in Sprint 16 as `POST /projects` — ⚠️ **called by the client with the planner's token, not by template-service**: a service-to-service call needs a machine identity (E7, unbuilt), and the transaction lives in milestone-service either way. `template-service` depends on nothing. See sprint-plan Sprint 16 |
 | Any service → `identity-service` | **Sync REST + aggressive cache** (5 min TTL) | Role data changes rarely; every request needs it |
 | `ai-service` → `milestone-service` | **Sync REST**, read-only, user's token | The AI service must obey the same row-level authorization as a human |
 | `integration-service` ↔ everything | **Camel routes over Kafka** | Batch, retryable, no user waiting |
