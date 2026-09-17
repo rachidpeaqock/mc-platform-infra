@@ -15,7 +15,7 @@ Verified 2026-09-13: all three answer **HTTP 200**.
 | **Templates** | https://orange-moss-08f7c2d0f.7.azurestaticapps.net | 2026-08-24 |
 | **Shell** | https://gentle-moss-010767c0f.7.azurestaticapps.net | 2026-08-24 |
 
-Azure Static Web Apps, deployed by `angular-app.yml` on every push to `main`. ⚠️ The `deploy`
+Azure Static Web Apps, deployed by `angular-app.yml` on every push to `main`. ⚠️ **These three hosts are hard-coded in each app's `src/app/core/platform-apps.ts`** (shell, dashboards, templates) — that is how the switcher and the launcher find the other apps until Front Door gives them one origin. Recreating a Static Web App means updating all three copies. ⚠️ The `deploy`
 input **defaults to `true`**, so a front end is published unless it opts out — which is why
 these exist without anyone deciding to publish them recently.
 
@@ -159,6 +159,10 @@ cd mc-platform-infra && docker compose up -d
 | PostgreSQL | `localhost:5432` |
 | Kafka | `localhost:9092` |
 | Kafka UI (`--profile tools`) | http://localhost:8090 |
+| Shell (`ng serve`) | http://localhost:4200 |
+| Dashboards (`ng serve`) | http://localhost:4201 |
+| Templates (`ng serve`) | http://localhost:4202 |
+| Field web (`ng serve`) | http://localhost:4203 |
 | Dashboards (verify harness) | http://localhost:4300 |
 | Field (verify harness) | http://localhost:4301 |
 | Templates (verify harness) | http://localhost:4302 |

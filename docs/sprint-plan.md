@@ -2494,6 +2494,19 @@ template". The second writes into another service and is Sprint 16.
    to the quota), and `angular-app.yml` skips the deploy rather than failing the build when the
    `dist` upload fails. The template-service baseline came from that log.
 
+**And a fourth, raised by the user the same day: every cross-app link was still a same-origin
+path.** `platform-architecture.md` §5 designs one origin behind Front Door with `/dashboards`,
+`/templates` and `/` path-routed, and the launcher and both app switchers were written for it.
+Front Door does not exist; each app is on its own Static Web App host. So on the deployed apps the
+switcher sent users to a 404 on the same host, and on a laptop — where every app defaulted to
+port 4200 — it looped back to the same app's catch-all route. Fixed with one resolver per app
+(`platform-apps.ts`, copied into shell, dashboards and templates) that answers by where the app is
+served: the three SWA hosts when deployed, per-app ports on localhost (4200–4203, now set in each
+`angular.json`), Codespaces port-swapping, and a path for anything else — which is the Front Door
+case, so the day it lands the file shrinks to its last line. Field's web build also gained the
+`.azurestaticapps.net` branch its `api-config` was missing; deployed, it would have called
+`localhost:8080`. Two browser assertions per app now intercept the navigation and check the origin.
+
 Also: the templates route was declared in Sprint 4 for a service that did not exist. `GatewayRoutingTest`
 now has a block per built service — including the bare `/api/v1/templates` collection, the path a
 `/**` suffix is most often assumed not to match. It does; that is no longer an assumption.
