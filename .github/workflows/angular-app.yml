@@ -58,6 +58,9 @@ jobs:
     permissions:
       contents: read
       packages: read      # @rachidpeaqock/* comes from GitHub Packages
+    outputs:
+      # Whether the deploy job has anything to deploy. See the upload step.
+      dist-uploaded: ${{ steps.dist.outcome == 'success' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -106,12 +109,34 @@ jobs:
         if: inputs.verify
         run: npm run verify
 
+      # ⚠️ continue-on-error, because the build and the browser drive above
+      # are the gate and this upload is the hand-off to the deploy job. On
+      # 2026-09-17 the account's artifact storage quota was full, and a run
+      # whose 41 browser assertions had all passed went red on this step -
+      # the same failure java-service.yml had the day before. When the
+      # upload fails the deploy job is skipped (it has nothing to deploy)
+      # and the summary says so; the next push after the quota clears
+      # deploys normally.
       - name: Upload artifact
+        id: dist
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.app-name }}-dist
           path: dist/${{ inputs.app-name }}/browser
           retention-days: 7
+
+      - name: Note a failed artifact upload
+        if: always() && steps.dist.outcome == 'failure'
+        run: |
+          {
+            echo "### ⚠️ Build artifact was not uploaded — deploy skipped"
+            echo
+            echo "The build and its checks passed; only the artifact upload failed"
+            echo "(usually the account's artifact storage quota, which recalculates"
+            echo "every 6–12 hours). Nothing was deployed from this run. Re-run it,"
+            echo "or push again, once the quota clears."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Deploys the artifact the build job already verified, rather than
   # rebuilding. A deploy that rebuilds can ship something the checks never
@@ -120,7 +145,8 @@ jobs:
   deploy:
     name: Deploy to Static Web Apps
     needs: build
-    if: inputs.deploy
+    # Skipped, not failed, when the build could not hand over its output.
+    if: inputs.deploy && needs.build.outputs.dist-uploaded == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
