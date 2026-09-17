@@ -24,6 +24,10 @@ name: Angular app (reusable)
 # the entire run fails with `startup_failure` at 0s - no logs, no
 # annotation, nothing that points at permissions.
 #
+# One job. Build, check, drive, deploy - the same bundle end to end. There
+# is deliberately no artifact between the checks and the deploy; see the
+# note above the deploy step for the day that cost a production fix.
+#
 # This is exactly what killed the deploy job in Sprint 2. It was removed
 # rather than diagnosed, and the cause only came to light in Sprint 4 when
 # the same failure hit java-service.yml.
@@ -58,9 +62,9 @@ jobs:
     permissions:
       contents: read
       packages: read      # @rachidpeaqock/* comes from GitHub Packages
-    outputs:
-      # Whether the deploy job has anything to deploy. See the upload step.
-      dist-uploaded: ${{ steps.dist.outcome == 'success' }}
+      # Static Web Apps posts the preview URL as a PR comment. Without this
+      # the deploy still works and the comment silently fails.
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
@@ -109,63 +113,25 @@ jobs:
         if: inputs.verify
         run: npm run verify
 
-      # ⚠️ continue-on-error, because the build and the browser drive above
-      # are the gate and this upload is the hand-off to the deploy job. On
-      # 2026-09-17 the account's artifact storage quota was full, and a run
-      # whose 41 browser assertions had all passed went red on this step -
-      # the same failure java-service.yml had the day before. When the
-      # upload fails the deploy job is skipped (it has nothing to deploy)
-      # and the summary says so; the next push after the quota clears
-      # deploys normally.
-      - name: Upload artifact
-        id: dist
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.app-name }}-dist
-          path: dist/${{ inputs.app-name }}/browser
-          retention-days: 7
-
-      - name: Note a failed artifact upload
-        if: always() && steps.dist.outcome == 'failure'
-        run: |
-          {
-            echo "### ⚠️ Build artifact was not uploaded — deploy skipped"
-            echo
-            echo "The build and its checks passed; only the artifact upload failed"
-            echo "(usually the account's artifact storage quota, which recalculates"
-            echo "every 6–12 hours). Nothing was deployed from this run. Re-run it,"
-            echo "or push again, once the quota clears."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  # Deploys the artifact the build job already verified, rather than
-  # rebuilding. A deploy that rebuilds can ship something the checks never
-  # saw — the tokens assertion above would be testing a different bundle
-  # from the one users get.
-  deploy:
-    name: Deploy to Static Web Apps
-    needs: build
-    # Skipped, not failed, when the build could not hand over its output.
-    if: inputs.deploy && needs.build.outputs.dist-uploaded == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      # Static Web Apps posts the preview URL as a PR comment. Without this
-      # the deploy still works and the comment silently fails.
-      pull-requests: write
-
-    steps:
-      # ⚠️ A repo with deploy: true but no Static Web App yet gets a clear
-      # skip, not a failure.
+      # ================================================================
+      # Deploy — from THIS job, with the bundle the checks above just ran on.
+      # ================================================================
+      # ⚠️ Not a separate job, and not via an artifact — and that is a
+      # lesson, not a style. Until 2026-09-17 the bundle was uploaded as an
+      # artifact and a second job downloaded and deployed it. The account's
+      # artifact storage quota then filled, the upload was refused, and the
+      # deploy job was skipped on every front end for a day — with every
+      # build green. A cross-app URL fix sat in `main` while the live sites
+      # kept the broken links, and the only sign was a grey "skipped" job.
+      # Deploying here removes the hand-off entirely: nothing sits between
+      # "the checks passed on this bundle" and "this bundle is live".
       #
-      # Without this, the deploy action fails with an authentication error
-      # that reads like a broken token rather than an absent one — and a
-      # repo sits red for as long as it takes somebody to create the Azure
-      # resource. Turning the intent on before the resource exists is a
-      # perfectly reasonable order to do things in, and the pipeline should
-      # not punish it.
+      # A repo with deploy: true but no Static Web App yet gets a clear
+      # skip, not a failure — turning the intent on before the resource
+      # exists is a reasonable order to do things in.
       - name: Check for a deployment token
         id: token
+        if: inputs.deploy
         env:
           SWA_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
         run: |
@@ -184,25 +150,28 @@ jobs:
             echo "present=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/download-artifact@v4
-        if: steps.token.outputs.present == 'true'
-        with:
-          name: ${{ inputs.app-name }}-dist
-          path: dist
-
       # Push to main -> production. Pull request -> its own preview
       # environment, torn down when the PR closes. The action picks which
-      # from the triggering event; nothing here needs to branch on it.
-      - name: Deploy
-        if: steps.token.outputs.present == 'true'
+      # from the triggering event.
+      - name: Deploy to Static Web Apps
+        if: inputs.deploy && steps.token.outputs.present == 'true'
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
-          app_location: dist
-          # Already built and checked in the previous job. Without these the
-          # action tries to detect and build the app itself, which for an
-          # Angular workspace means building the wrong thing or nothing.
+          app_location: dist/${{ inputs.app-name }}/browser
+          # Already built and checked above. Without these the action tries
+          # to detect and build the app itself, which for an Angular
+          # workspace means building the wrong thing or nothing.
           skip_app_build: true
           skip_api_build: true
+
+      - name: Record what went live
+        if: inputs.deploy && steps.token.outputs.present == 'true'
+        run: |
+          {
+            echo "### ✅ Deployed \`${{ inputs.app-name }}\` @ \`${GITHUB_SHA::7}\`"
+            echo
+            echo "The bundle deployed is the one the checks in this job ran on."
+          } >> "$GITHUB_STEP_SUMMARY"
