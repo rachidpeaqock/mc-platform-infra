@@ -136,16 +136,40 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # ⚠️ When the upload fails, the spec goes into the job LOG instead.
+      #
+      # The artifact quota that broke the upload takes 6–12 hours to
+      # recalculate, and the one time the spec is genuinely needed is the
+      # first push of a new service — when the contract test fails by
+      # design because no baseline exists yet. Waiting half a day for
+      # storage accounting to catch up is not a bootstrap path. The log is
+      # not subject to the quota, and this fetches it:
+      #
+      #   gh run view <run-id> --log | sed -n '/^.*::BEGIN openapi.json::/,/::END openapi.json::/p' \
+      #     | sed '1d;$d' | sed 's/^[^\t]*\t[^\t]*\t[^ ]* //' > api/openapi.json
+      #
+      # (the second sed strips the "job<TAB>step<TAB>timestamp " prefix
+      # gh puts on every log line).
       - name: Note a failed spec upload
         if: always() && steps.spec.outcome == 'failure'
         run: |
           {
             echo "### ⚠️ OpenAPI spec was not uploaded"
             echo
-            echo "The build is green; only the artifact upload failed (usually the"
-            echo "account's artifact storage quota). If you need this run's spec to"
-            echo "bootstrap a contract baseline, re-run the job once the quota clears."
+            echo "The build's tests are the gate; only the artifact upload failed"
+            echo "(usually the account's artifact storage quota). The spec is printed"
+            echo "in this job's log between \`::BEGIN openapi.json::\` and"
+            echo "\`::END openapi.json::\` — see java-service.yml for the one-liner"
+            echo "that extracts it into \`api/openapi.json\`."
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ -f target/openapi.json ]; then
+            echo "::group::openapi.json (upload failed; the log is the fallback)"
+            echo "::BEGIN openapi.json::"
+            cat target/openapi.json
+            echo
+            echo "::END openapi.json::"
+            echo "::endgroup::"
+          fi
 
   # Publishing images is what makes `docker compose up` work from anywhere —
   # a developer in a Codespace has one repo checked out, not nine, so compose
