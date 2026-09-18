@@ -129,7 +129,7 @@ jobs:
         id: spec
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.service-name }}-openapi
           path: target/openapi.json
