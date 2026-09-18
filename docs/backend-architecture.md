@@ -7,8 +7,8 @@ Companion to [`azure-deployment-plan.md`](./azure-deployment-plan.md), which cov
 **Status:** partly built · **Written:** 2026-08-14 · **Last reconciled against the code:** 2026-09-07
 
 **Repos that exist:** `mc-discovery-server`, `mc-api-gateway`, `mc-milestone-service`,
-`mc-identity-service`, `mc-template-service`.
-**Designed, not created:** `mc-activity-service`.
+`mc-identity-service`, `mc-template-service`, `mc-integration-service`.
+**Designed, not created:** `mc-activity-service`, `mc-ai-service`.
 
 > ⚠️ **Read this document as two things at once.** Sections marked ✅ have been reconciled
 > against the code and describe what runs; sections marked ⚠️ describe a design that was not

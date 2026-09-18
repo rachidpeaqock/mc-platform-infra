@@ -9,6 +9,7 @@
 #   milestone-service  milestones, audit, calendar, dependency graph
 #   identity-service   who the people are (names for actor ids)
 #   template-service   the planner's library of reusable hierarchies
+#   integration-service P6 and other formats, read into the platform's shapes
 #   postgres           one database per service (see init/)
 #   kafka              the event backbone (Event Hubs speaks this protocol)
 #   kafka-ui           browse topics and messages while developing
@@ -270,6 +271,20 @@ services:
     #
     #   docker compose --profile migrate run --rm migrate-template
     restart: on-failure:5
+
+  # Sprint 21. No database and no migrate job: this slice parses a file
+  # and answers. The tables the architecture gives it (integration_run,
+  # external_ref) arrive with the unattended routes.
+  integration-service:
+    image: ghcr.io/rachidpeaqock/mc-integration-service:main
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      EUREKA_URI: http://discovery-server:8761/eureka
+    depends_on:
+      discovery-server:
+        condition: service_healthy
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest

@@ -63,6 +63,7 @@ All under [`github.com/rachidpeaqock`](https://github.com/rachidpeaqock), all **
 | [mc-field](https://github.com/rachidpeaqock/mc-field) | The native app (Ionic/Capacitor) |
 | [mc-templates](https://github.com/rachidpeaqock/mc-templates) | Planner templates — on `template-service` since Sprint 14 |
 | [mc-template-service](https://github.com/rachidpeaqock/mc-template-service) | The planner's library: `template`, `template_row`. Contract 1.0.0 |
+| [mc-integration-service](https://github.com/rachidpeaqock/mc-integration-service) | P6 XER → the platform's project structure, previewed. No database. Contract 1.0.0 |
 | [mc-shell](https://github.com/rachidpeaqock/mc-shell) | The landing shell |
 | [mc-design-system](https://github.com/rachidpeaqock/mc-design-system) | Tokens, primitives, the top bar |
 
@@ -156,6 +157,7 @@ cd mc-platform-infra && docker compose up -d
 | milestone-service | http://localhost:8081 |
 | identity-service | http://localhost:8083 |
 | template-service | http://localhost:8084 |
+| integration-service | http://localhost:8085 |
 | PostgreSQL | `localhost:5432` |
 | Kafka | `localhost:9092` |
 | Kafka UI (`--profile tools`) | http://localhost:8090 |

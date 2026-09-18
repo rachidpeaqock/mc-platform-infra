@@ -1596,7 +1596,7 @@ authorization authority is the unbuilt half, and it is the half that needs the s
 
 | Sprint | Focus | Key stories |
 |---|---|---|
-| **21** | Inbound | Camel 4.20 service · SFTP poll of P6 exports · XER/XML parse and map · **idempotent consumer** (a re-applied export must not double-write the audit log) · dead-letter route |
+| **21** | Inbound | ✅ **Scoped and built 2026-09-18 — as a preview slice.** `mc-integration-service`: an XER export in, milestone-service's `POST /projects` body out, **shape for shape**, with every count and one sentence per rule that dropped something. No Camel, no SFTP, no database yet — see the Sprint 21 note for why. ~~Camel 4.20 service · SFTP poll · idempotent consumer · dead-letter route~~ → arrive with the first customer who has a drop folder |
 | **22** | Outbound | Push changes to P6/ERP · weekly Excel export to the client's SFTP · Teams/email notifications · **webhooks with HMAC signatures** for third parties who can't consume Kafka |
 
 ---
@@ -2424,13 +2424,14 @@ dependency wired, all of it or none of it.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **243 tests**, twelve against Azurite over the real Blob API. Contract **2.10.0** |
-| `mc-api-gateway` | **50 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy, rate limiting, timeouts, fallback |
+| `mc-milestone-service` | **245 tests**, twelve against Azurite over the real Blob API. Contract **2.11.0** |
+| `mc-api-gateway` | **52 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy, rate limiting, timeouts, fallback |
 | `mc-identity-service` | **19 tests** — JIT provisioning, batch resolve, the directory, boundaries, contract. Pinned at **1.1.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
+| `mc-integration-service` | **34 tests** — every P6 mapping rule against a hand-computed fixture, both encodings, every refusal, the multipart endpoint, roles, preview-only, tenant guard, contract. Pinned at **1.0.0**. No database |
 | `mc-dashboards` | **89 browser assertions**, in CI |
 | `mc-field` | **84 browser assertions**, in CI, plus an installable Android APK |
-| `mc-templates` | **57 browser assertions**, in CI |
+| `mc-templates` | **71 browser assertions**, in CI |
 
 **No client on this platform holds domain data any more — and this time it is true.** The
 2026-09-13 version of this sentence overlooked `mc-templates`, which still carried four
@@ -2561,7 +2562,43 @@ One stub defect found on the way and worth recording: the dashboards stub's user
 `u-pm-0001`, so the view's "is this an id?" check treated them as names and every owner assertion
 would have passed for the wrong reason. Real ids are UUIDs; the stub's are now too.
 
-And a fourth finding while opening it: **the gateway's `azure` profile listed only the milestones
+### Sprint 21 · closed 2026-09-18 — P6 inbound, as a preview
+
+**The scoping decision the plan was waiting for ("when P6 sync is scoped"):** the first inbound
+path is **a file a planner uploads, not an SFTP poll**. `mc-integration-service` reads a P6 XER
+export and answers with what it would become — milestone-service's `POST /projects` body, shape
+for shape, plus every count and one sentence per rule that dropped or changed something. The
+Templates app shows that preview, then opens **the same create sheet a template uses**, and the
+planner creates with their own token.
+
+| | |
+|---|---|
+| `mc-integration-service` **1.0.0** | `POST /imports/p6/preview`, multipart. 34 tests. **No Camel, no database**: this slice parses and answers. The architecture's Camel routes (SFTP poll with an idempotent file repository, dead-letter, outbound) and its tables (`integration_run`, `external_ref`) arrive with the first customer who has a drop folder — adding them for one uploaded file would be the framework before the need |
+| milestone-service **2.11.0** | `MilestoneSpec.scheduledDate` as the alternative to `offsetDays`. P6 has dates; turning one into an offset would need the calendar only to turn it straight back, and would move a date P6 stated |
+| gateway | `/api/v1/imports/**`, both profiles, in the same change as the service |
+| `mc-templates` | "Copy from previous project" — a card that opened a blank editor — became "Import from Primavera P6", which does what it says. The create sheet takes a `ProjectSource` now, not a template |
+
+**How P6 becomes a project, decided:** only `TT_Mile` / `TT_FinMile` cross (tasks, LOE, WBS
+summaries are counted and skipped); WBS level 1 is a phase, level 2 a work package, deeper folds
+into its level-2 ancestor; only finish-to-start crosses, lag dropped, forward references skipped
+(milestone-service refuses them); completed milestones arrive as their plan — **actuals are not
+carried, because P6 has no reason for them and the audit trail records reasons**; duplicate names
+within a parent are suffixed. Windows-1252 is read as well as UTF-8 — P6 writes the OS code page,
+and a French site's `Réception` would otherwise be `R�ception` in the first preview a client sees.
+
+⚠️ **Why the planner's token and not a machine identity, again.** The architecture forbids an
+audit trail that says "the integration user". A preview that the planner then submits keeps the
+planner as the actor with no new identity built. This is the second time that shape has been
+chosen over a service-to-service call (Sprint 16 was the first), and the trigger for building
+`client_credentials` is now precisely stated: **the first unattended path** — an SFTP drop nobody
+clicks Continue on. That path also needs the answer to a question this slice avoids: who is the
+actor when a file arrives at 03:00?
+
+**Not done, and known:** XER only (P6 XML is a second reader over the same mapper); one project per
+file (a multi-project export reads the first and says so); no "save as template" from an import
+(offsets would need a calendar the file does not have); no outbound.
+
+And a fourth finding while opening MC-440: **the gateway's `azure` profile listed only the milestones
 route.** A profile's `routes:` list replaces the default one, so the deployed gateway could not
 reach identity-service or template-service at all — every `/users` and `/templates` call would
 have 404'd at the edge while working locally. Fixed with the two routes and

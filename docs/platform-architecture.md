@@ -19,7 +19,7 @@ Twelve sprints. What this document describes, against what is running.
 | | Designed | Built |
 |---|---|---|
 | **Front ends** | 4 (shell, dashboards, templates, field) | ✅ all four, Angular 20 + shared design system |
-| **Backend services** | 6 domain services + gateway + registry | ✅ `milestone`, `identity`, `template`, `api-gateway`, `discovery` · ⬜ `activity`, `ai`, `integration` |
+| **Backend services** | 6 domain services + gateway + registry | ✅ `milestone`, `identity`, `template`, `integration` (P6 inbound, preview slice), `api-gateway`, `discovery` · ⬜ `activity`, `ai` |
 | **Gateway + Eureka** | §8a | ✅ routing by `lb://`, Entra validation at the edge |
 | **Event backbone (Kafka)** | §8b | ⬜ nothing produces an event yet. Sprint 13 |
 | **Real-time fan-out** | Web PubSub | ⬜ Sprint 14 |
@@ -227,7 +227,7 @@ flowchart TB
 | 9 | `mc-template-service` | Template library, project instantiation | container | Container Apps |
 | 10 | `mc-identity-service` | User profiles, project role assignment | container | Container Apps |
 | 11 | `mc-ai-service` | **Python 3.12 / FastAPI** — reason classification, exec narratives, NL query | container | Container Apps |
-| 12 | `mc-integration-service` | **Apache Camel 4.20** — P6, SFTP, email, format mediation | container | Container Apps |
+| 12 | `mc-integration-service` | ✅ **Built 2026-09-18 as a preview slice, without Camel yet**: P6 XER → project structure, `POST /imports/p6/preview`, no database. Camel 4.x arrives with the unattended routes (SFTP poll, outbound) — see sprint-plan Sprint 21 | container | Container Apps |
 | 13 | `mc-platform-infra` | Bicep, environments, shared pipelines | IaC | — |
 
 **Start with fewer.** §14 sequences this so you are not standing up eleven repos before the first user sees anything. `identity-service` in particular can begin as a module inside `milestone-service` and be extracted when it earns it.
@@ -984,7 +984,7 @@ Time is not the constraint (§0), so these phases are ordered by **architectural
 
 **Phase G — `ai-service` (5 weeks).** Deliberately late, and not because it's low value: **the classifier needs an audit trail to learn from, and that only exists once real crews have been capturing reasons for a while.** Build the eval set first (A2), then auto-suggest, then NL query. Shipping this in month two would mean training on 32 seeded rows.
 
-**Phase H — `integration-service` (Camel 4.20) (4 weeks).** When P6 sync is scoped.
+**Phase H — `integration-service` (4 weeks).** ✅ **Scoped and started 2026-09-18** (sprint-plan Sprint 21): the first inbound path is a planner's upload, previewed, created with the planner's token. Camel and the tables come with the first SFTP drop.
 
 ---
 
