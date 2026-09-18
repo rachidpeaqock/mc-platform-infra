@@ -2428,10 +2428,10 @@ dependency wired, all of it or none of it.
 | `mc-api-gateway` | **55 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy (incl. the native webview origins and the exact cloud list), rate limiting, timeouts, fallback |
 | `mc-identity-service` | **19 tests** — JIT provisioning, batch resolve, the directory, boundaries, contract. Pinned at **1.1.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
-| `mc-integration-service` | **34 tests** — every P6 mapping rule against a hand-computed fixture, both encodings, every refusal, the multipart endpoint, roles, preview-only, tenant guard, contract. Pinned at **1.0.0**. No database |
+| `mc-integration-service` | **46 tests** — every P6 mapping rule against a hand-computed fixture, the XML twin of that fixture previewing identically, both encodings, every refusal (XXE included), project choice, the multipart endpoint, roles, preview-only, tenant guard, contract. Pinned at **1.2.0**. No database |
 | `mc-dashboards` | **98 browser assertions**, in CI — nine of them against a 5,000-milestone project |
 | `mc-field` | **84 browser assertions**, in CI, plus an installable Android APK |
-| `mc-templates` | **71 browser assertions**, in CI |
+| `mc-templates` | **74 browser assertions**, in CI |
 
 **No client on this platform holds domain data any more — and this time it is true.** The
 2026-09-13 version of this sentence overlooked `mc-templates`, which still carried four
@@ -2594,9 +2594,18 @@ chosen over a service-to-service call (Sprint 16 was the first), and the trigger
 clicks Continue on. That path also needs the answer to a question this slice avoids: who is the
 actor when a file arrives at 03:00?
 
-**Not done, and known:** XER only (P6 XML is a second reader over the same mapper); one project per
-file (a multi-project export reads the first and says so); no "save as template" from an import
-(offsets would need a calendar the file does not have); no outbound.
+**Not done, and known** (as closed 2026-09-18): XER only (P6 XML is a second reader over the same
+mapper); one project per file (a multi-project export reads the first and says so); no "save as
+template" from an import (offsets would need a calendar the file does not have); no outbound.
+→ **The first two closed later the same day, in Sprint 24** (contract 1.1.0 then 1.2.0): P6 XML is
+read into the same four tables the mapper already consumes — `Finish Milestone` is `TT_FinMile`,
+`Completed` is `TK_Complete`, the project node XML does not write is synthesised — so the XML twin
+of the XER fixture must preview *identically*, and the test says so in one equality. The format is
+sniffed from the first byte, not the file name; a DOCTYPE is refused outright (an upload is where an
+XXE payload arrives). And a portfolio file now lists its projects (`source.projectsInFile`), the
+sheet offers the choice, and `?project=<id>` re-reads the same file for the one chosen. The two
+that remain wait on their triggers: save-as-template needs a calendar the file lacks; outbound
+needs a destination.
 
 ### Sprint 23 · opened 2026-09-18 — the estate as code
 

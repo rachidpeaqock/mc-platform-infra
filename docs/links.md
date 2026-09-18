@@ -63,7 +63,7 @@ All under [`github.com/rachidpeaqock`](https://github.com/rachidpeaqock), all **
 | [mc-field](https://github.com/rachidpeaqock/mc-field) | The native app (Ionic/Capacitor) |
 | [mc-templates](https://github.com/rachidpeaqock/mc-templates) | Planner templates — on `template-service` since Sprint 14 |
 | [mc-template-service](https://github.com/rachidpeaqock/mc-template-service) | The planner's library: `template`, `template_row`. Contract 1.0.0 |
-| [mc-integration-service](https://github.com/rachidpeaqock/mc-integration-service) | P6 XER → the platform's project structure, previewed. No database. Contract 1.0.0 |
+| [mc-integration-service](https://github.com/rachidpeaqock/mc-integration-service) | P6 XER or P6 XML → the platform's project structure, previewed; a portfolio file offers its projects. No database. Contract 1.2.0 |
 | [mc-shell](https://github.com/rachidpeaqock/mc-shell) | The landing shell |
 | [mc-design-system](https://github.com/rachidpeaqock/mc-design-system) | Tokens, primitives, the top bar |
 
