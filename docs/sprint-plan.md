@@ -1606,7 +1606,7 @@ authorization authority is the unbuilt half, and it is the half that needs the s
 | Sprint | Focus | Key stories |
 |---|---|---|
 | **23** | Reliability | 🔄 **Opened 2026-09-18.** ✅ The estate as Bicep — two stages plus a budget, compiled and linted, **not yet applied** (H4) · ✅ backups declared (7-day PITR dev / 14-day geo-redundant prod) + **the restore drill written as commands, not yet performed** (H4) · ✅ alerts on gateway 5xx, crash loops, database down/CPU/storage, budget 80 % actual / 100 % forecast — ~~outbox lag~~ there is no outbox until activity-service exists · ✅ runbook · ✅ migrate-then-deploy in `java-service.yml` — see the Sprint 23 note |
-| **24** | Scale + security | k6 load test at **5,000 milestones** (the PM tree renders unvirtualized — expect to add CDK virtual scroll) · security review · penetration test of the gateway · deprecation policy published |
+| **24** | Scale + security | 🔄 **Opened 2026-09-18.** ✅ **CDK virtual scroll on the PM tree** — 5,000 milestones in a stub, ~60 row elements in the DOM, first paint 67 ms, 9 browser assertions · ✅ k6 script + 5,000-row seed with the thresholds as promises — **not yet run** (no k6, no Docker on the dev machine; H4) · ✅ deprecation policy published · ⬜ security review · ⬜ penetration test of the gateway — both need the live environment |
 
 ---
 
@@ -2411,7 +2411,7 @@ comes due in that pass.
 
 ---
 
-## Where things actually stand · 2026-09-18 (Sprint 23 open; E10 begun)
+## Where things actually stand · 2026-09-18 (Sprints 23 and 24 open; E10 code side done)
 
 **Sprints 0–14 and 16 complete — E6 was pulled forward whole. Epic E4 finished bar shipping; E5
 closed or parked; E6 built; E7 built early.** A crew lead can record an update with no signal, photograph the reason,
@@ -2429,7 +2429,7 @@ dependency wired, all of it or none of it.
 | `mc-identity-service` | **19 tests** — JIT provisioning, batch resolve, the directory, boundaries, contract. Pinned at **1.1.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
 | `mc-integration-service` | **34 tests** — every P6 mapping rule against a hand-computed fixture, both encodings, every refusal, the multipart endpoint, roles, preview-only, tenant guard, contract. Pinned at **1.0.0**. No database |
-| `mc-dashboards` | **89 browser assertions**, in CI |
+| `mc-dashboards` | **98 browser assertions**, in CI — nine of them against a 5,000-milestone project |
 | `mc-field` | **84 browser assertions**, in CI, plus an installable Android APK |
 | `mc-templates` | **71 browser assertions**, in CI |
 
@@ -2672,6 +2672,49 @@ migration-image path is proven; the migrate-then-deploy path waits for the conta
 **Left in Sprint 23, all H4:** run §1 · perform the restore drill and write the date in §5's table ·
 `ACR_NAME` + Azure ids on identity/template/integration, `CONTAINER_APPS_RG` on all five, and watch
 one push deploy · the Field token.
+
+### Sprint 24 · opened 2026-09-18 — the number the risk register named
+
+**The risk, closed.** Since day one the plan carried "the PM tree renders unvirtualized — expect to
+add CDK virtual scroll" and nothing had ever put 5,000 milestones through it. The tree was three
+nested `@for`s; every open row was a DOM node. It is now one flat `Row[]` computed from the same
+filtered, rolled-up tree — respecting what the user collapsed and what the search hid — rendered
+through `cdk-virtual-scroll-viewport` at a fixed **44 px** per row, with the column headers and
+the project row as fixed chrome above the viewport. Only the rows on screen exist.
+
+| Measured, in the harness, against a 10 × 10 × 50 stub project | |
+|---|---|
+| row elements in the DOM | **~60** of 5,210 (5,000 milestones + 100 work packages + 10 phases + 100 add rows) |
+| scroll height | 5,210 × 44 px — the whole tree is reachable, `Milestone #5000` included |
+| first paint after choosing the PM tab | **67 ms** |
+| collapse a phase | its 521 rows leave the scroll height; they are not hidden, they are not built |
+| search `Milestone #4999` | one row, under `Phase 10 › WP 10.10`; no match is a row in the list, not a message under it |
+
+Nine assertions, in `verify/drive.mjs` behind a `/__big/on` stub switch so every other assertion
+keeps its small fixture. **98 browser assertions.** Screenshot checked by eye at row 2,600 with a
+drawer open: chrome fixed, rows aligned, selection and red rows intact.
+
+*What changed for the eye:* rows are 44 px instead of 42/46, the "Add milestone" line is a row
+like the others, and the empty-state message sits in the list. Nothing else.
+
+**The load test, as a promise.** `load/pm-tree.js` runs three scenarios together — PMs opening the
+board (tree + summary + a drawer), Field replaying real-date writes at 3/s with `If-Match` and a
+reason, the exec view refreshing — against `load/seed-5000.sql`, with thresholds that fail the run:
+tree p95 < 1 s, summary < 300 ms, detail < 400 ms, write < 500 ms, 5xx < 0.1 %. 409s are reported,
+not thresholded: two crew leads moving the same date is a real event. ⚠️ **Not run**: the
+development machine has neither k6 nor Docker, and every service validates a real Entra token in
+every profile — there is no load-test token on purpose, and `load/README.md` says why the fix for
+that is the parked machine identity, not a bypass profile. First run is H4; the results table in
+`load/README.md` is empty until then.
+
+**The deprecation policy**, published as `docs/deprecation-policy.md`: minor is additive, major is
+`/api/v2` alongside v1 for 90 days with `Deprecation`/`Sunset` headers then 90 days of `410`;
+Field's version floor is raised only for a data-damaging defect, never to retire an API; migrations
+that remove ship expand-then-contract across two releases. Short, because everything in it is
+already enforced by a test, a trigger or the gateway.
+
+**Left in Sprint 24:** the k6 run (H4) · security review and pen test — both need the environment.
+E10's code side is done; what remains of E10 is runbook §1 and what it finds.
 
 And a fourth finding while opening MC-440: **the gateway's `azure` profile listed only the milestones
 route.** A profile's `routes:` list replaces the default one, so the deployed gateway could not

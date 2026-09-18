@@ -383,7 +383,7 @@ In the order they would matter for a first paying customer:
 | Vault | soft delete, no purge protection | `env == 'prod'` turns it on (already in `keyvault.bicep`) |
 | Backups | 7-day PITR, LRS storage | 14-day + geo-redundant and GRS storage under `env == 'prod'` (already in the templates); a *performed* drill (§5) |
 | Identity | Contributor-on-group for the GitHub identity | split: a deploy identity per repo with AcrPush + Container Apps Contributor only |
-| Load | never measured | k6 at 5,000 milestones — Sprint 24 |
+| Load | never measured | `load/pm-tree.js` against `load/seed-5000.sql` (Sprint 24) — written, not run; needs k6, Docker or the Azure stack, and a real bearer token (`load/README.md`) |
 | Security review / pen test | none | Sprint 24; the gateway is the surface |
 | Field app registration | not created | needs the iOS bundle id (MC-004) |
 

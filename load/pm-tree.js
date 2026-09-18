@@ -1,0 +1,188 @@
+// ============================================================
+// Sprint 24 — k6: the PM board at 5,000 milestones
+// ============================================================
+// What the two apps actually do, at the rate a pilot does it, against a
+// project the size the plan worried about. Three scenarios run together:
+//
+//   pm-board    PMs opening the hierarchy: GET the whole tree, then the
+//               summary, then one milestone's detail (the drawer).
+//               Every tree read is 5,000 rows through milestone_view.
+//   field-sync  Crew leads' phones replaying their outbox: POST real-date
+//               with If-Match, a reason and a note — the write path with
+//               the audit trail, ShedLock and the ETag check on it.
+//   exec        The executive view refreshing the summary, cheap and often.
+//
+// Thresholds are the promise, not a measurement: a PM waits under a second
+// for a 5,000-row board at p95, a phone's write is acknowledged under
+// half a second, and nothing 5xx's. A failed threshold fails the run.
+//
+//   docker compose up -d && docker compose --profile migrate run --rm migrate
+//   docker compose exec -T postgres psql -U milestone_svc -d milestone_db < load/seed-5000.sql
+//   TOKEN=$(...) k6 run load/pm-tree.js
+//
+// TOKEN is a real bearer for the API — the gateway validates it against
+// Entra whichever profile it runs, so there is no "load-test token". The
+// easiest source is a signed-in Dashboards tab: sessionStorage.mcToken.
+// Against Azure: BASE_URL=https://ca-api-gateway.<env-domain> — and read
+// runbook §6 first, because this WILL trip the postgres-cpu alert on a
+// B1ms, which is one of the things it is for.
+
+import http from 'k6/http';
+import { check, group, sleep } from 'k6';
+import { Trend, Rate } from 'k6/metrics';
+
+const BASE = __ENV.BASE_URL || 'http://localhost:8080';
+const PROJECT = __ENV.PROJECT || 'a0000000-0000-4000-8000-00000000f5e0';
+const TOKEN = __ENV.TOKEN;
+if (!TOKEN) {
+  throw new Error('TOKEN is required: a bearer token the gateway accepts (see the header of this file).');
+}
+
+const auth = { Authorization: `Bearer ${TOKEN}`, Accept: 'application/json' };
+const json = { ...auth, 'Content-Type': 'application/json' };
+
+const treeMs = new Trend('tree_ms', true);
+const summaryMs = new Trend('summary_ms', true);
+const detailMs = new Trend('detail_ms', true);
+const writeMs = new Trend('write_ms', true);
+const conflicts = new Rate('write_conflicts');   // 409s — expected under contention, counted, not failed
+const serverErrors = new Rate('server_errors');
+
+export const options = {
+  scenarios: {
+    'pm-board': {
+      executor: 'ramping-vus',
+      exec: 'pmBoard',
+      startVUs: 2,
+      stages: [
+        { duration: '30s', target: 10 },
+        { duration: '2m', target: 10 },
+        { duration: '30s', target: 25 },   // a Monday morning
+        { duration: '1m', target: 25 },
+        { duration: '30s', target: 0 },
+      ],
+    },
+    'field-sync': {
+      executor: 'constant-arrival-rate',
+      exec: 'fieldSync',
+      rate: 3, timeUnit: '1s',              // 3 real-date changes a second is ~10,000 an hour: far above a pilot
+      duration: '4m30s',
+      preAllocatedVUs: 10, maxVUs: 40,
+    },
+    exec: {
+      executor: 'constant-vus',
+      exec: 'execView',
+      vus: 5,
+      duration: '4m30s',
+    },
+  },
+  thresholds: {
+    tree_ms: ['p(95)<1000', 'p(99)<2500'],
+    summary_ms: ['p(95)<300'],
+    detail_ms: ['p(95)<400'],
+    write_ms: ['p(95)<500'],
+    server_errors: ['rate<0.001'],
+    http_req_failed: ['rate<0.05'],       // 409s count as "failed" to k6; the conflicts rate below is the honest number
+  },
+};
+
+/** Milestone ids as seed-5000.sql minted them: d…3 + hex(n), n in 1..5000. */
+function milestoneId(n) {
+  return 'd0000000-0000-4000-8000-3' + n.toString(16).padStart(11, '0');
+}
+
+function note5xx(res) {
+  serverErrors.add(res.status >= 500);
+}
+
+export function pmBoard() {
+  group('open the hierarchy', () => {
+    const tree = http.get(`${BASE}/api/v1/projects/${PROJECT}/milestones`, { headers: auth, tags: { name: 'tree' } });
+    treeMs.add(tree.timings.duration);
+    note5xx(tree);
+    check(tree, {
+      'tree 200': (r) => r.status === 200,
+      'tree has 5,000 milestones': (r) => {
+        try {
+          const body = r.json();
+          let n = 0;
+          for (const p of body.phases) for (const w of p.workPackages) n += w.milestones.length;
+          return n === 5000;
+        } catch { return false; }
+      },
+    });
+
+    const summary = http.get(`${BASE}/api/v1/projects/${PROJECT}/summary`, { headers: auth, tags: { name: 'summary' } });
+    summaryMs.add(summary.timings.duration);
+    note5xx(summary);
+    check(summary, { 'summary 200': (r) => r.status === 200 });
+  });
+
+  group('open a drawer', () => {
+    const id = milestoneId(1 + Math.floor(Math.random() * 5000));
+    const detail = http.get(`${BASE}/api/v1/milestones/${id}`, { headers: auth, tags: { name: 'detail' } });
+    detailMs.add(detail.timings.duration);
+    note5xx(detail);
+    check(detail, { 'detail 200 with an ETag': (r) => r.status === 200 && !!r.headers['Etag'] });
+  });
+
+  sleep(3 + Math.random() * 5);   // a PM reads before clicking again
+}
+
+export function fieldSync() {
+  // Only pending, never the same row twice in a second on purpose: the
+  // 409 path is real and should appear, but this test is about throughput,
+  // not about manufacturing conflicts.
+  const n = 1 + Math.floor(Math.random() * 5000);
+  const id = milestoneId(n);
+
+  const current = http.get(`${BASE}/api/v1/milestones/${id}`, { headers: auth, tags: { name: 'detail' } });
+  note5xx(current);
+  if (current.status !== 200) return;
+  const etag = current.headers['Etag'];
+  const m = current.json();
+  if (m.status === 'done') return;
+
+  // Move the forecast a day, with a reason and a note — what a crew lead
+  // records on site. The idempotency key is per attempt, as the phone's is.
+  const real = new Date(m.realDate);
+  real.setDate(real.getDate() + 1);
+  const body = JSON.stringify({
+    realDate: real.toISOString().slice(0, 10),
+    status: 'pending',
+    reason: 'weather',
+    note: 'k6 load test',
+    app: 'field',
+  });
+  const res = http.post(`${BASE}/api/v1/milestones/${id}/real-date`, body, {
+    headers: { ...json, 'If-Match': etag, 'Idempotency-Key': `k6-${__VU}-${__ITER}-${Date.now()}` },
+    tags: { name: 'real-date' },
+  });
+  writeMs.add(res.timings.duration);
+  note5xx(res);
+  conflicts.add(res.status === 409);
+  check(res, { 'real-date 200 or 409': (r) => r.status === 200 || r.status === 409 });
+}
+
+export function execView() {
+  const summary = http.get(`${BASE}/api/v1/projects/${PROJECT}/summary`, { headers: auth, tags: { name: 'summary' } });
+  summaryMs.add(summary.timings.duration);
+  note5xx(summary);
+  check(summary, { 'summary 200': (r) => r.status === 200 });
+  sleep(10);   // the exec view refreshes on an interval, not a click
+}
+
+export function handleSummary(data) {
+  const p = (m, q) => (data.metrics[m] ? Math.round(data.metrics[m].values[q]) : '—');
+  const lines = [
+    '',
+    'Sprint 24 — 5,000 milestones',
+    `  tree     p50 ${p('tree_ms', 'p(50)')} ms   p95 ${p('tree_ms', 'p(95)')} ms   p99 ${p('tree_ms', 'p(99)')} ms`,
+    `  summary  p50 ${p('summary_ms', 'p(50)')} ms   p95 ${p('summary_ms', 'p(95)')} ms`,
+    `  detail   p50 ${p('detail_ms', 'p(50)')} ms   p95 ${p('detail_ms', 'p(95)')} ms`,
+    `  write    p50 ${p('write_ms', 'p(50)')} ms   p95 ${p('write_ms', 'p(95)')} ms   conflicts ${data.metrics.write_conflicts ? (data.metrics.write_conflicts.values.rate * 100).toFixed(1) : '—'} %`,
+    `  5xx rate ${data.metrics.server_errors ? (data.metrics.server_errors.values.rate * 100).toFixed(3) : '—'} %`,
+    '',
+  ];
+  return { stdout: lines.join('\n'), 'load/last-run.json': JSON.stringify(data, null, 2) };
+}

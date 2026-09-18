@@ -72,6 +72,8 @@ cd ../mc-api-gateway && mvn spring-boot:run
 | [`docs/azure-deployment-plan.md`](docs/azure-deployment-plan.md) | Database schema, endpoint contract, auth model, the working-day calendar problem, concurrency and offline |
 | [`docs/sprint-plan.md`](docs/sprint-plan.md) | 10 epics, 24 sprints, per-story status. **The living tracker** |
 | [`docs/runbook.md`](docs/runbook.md) | **Operating it.** First deployment in order, deploy, roll back, rotate a secret, the restore drill, what each alert means, the hardening list |
+| [`docs/deprecation-policy.md`](docs/deprecation-policy.md) | What callers can rely on: contract versions, the 90-day window, Field's version floor, expand-then-contract migrations |
+| [`load/`](load/) | k6 at 5,000 milestones — the seed, the script, the thresholds as promises, and the results table |
 
 ## Shared workflows
 
