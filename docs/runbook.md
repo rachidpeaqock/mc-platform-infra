@@ -103,9 +103,24 @@ repo** (or as organisation variables):
 | `CONTAINER_APPS_RG` | `rg-milestone-command-dev` | after the push: run `job-migrate-<svc>`, then `az containerapp update` |
 | `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | already on `mc-platform-infra` | needed on the callers too — a called workflow reads the caller's `vars` |
 
-Then push to `main` (or `gh workflow run` the CI) on `mc-api-gateway`, `mc-milestone-service`,
-`mc-identity-service`, `mc-template-service`, `mc-integration-service`. Each run publishes to ACR
-and stops at "Not deployed" — the container apps do not exist yet. Images first, because a
+`acrmilestonecommanddev` **already exists** and `mc-api-gateway`, `mc-milestone-service` and
+`mc-discovery-server` already carry `ACR_NAME` + the three Azure ids (set 2026-08-24) — the
+milestone-service run of 2026-09-18 pushed `mc-milestone-service:main` *and*
+`mc-milestone-service-migrate:main` to it, which is the new steps proven once. What is missing:
+
+```powershell
+foreach ($r in 'mc-identity-service','mc-template-service','mc-integration-service') {
+  gh variable set ACR_NAME              -R rachidpeaqock/$r -b acrmilestonecommanddev
+  gh variable set AZURE_CLIENT_ID       -R rachidpeaqock/$r -b (gh variable get AZURE_CLIENT_ID       -R rachidpeaqock/mc-platform-infra)
+  gh variable set AZURE_TENANT_ID       -R rachidpeaqock/$r -b (gh variable get AZURE_TENANT_ID       -R rachidpeaqock/mc-platform-infra)
+  gh variable set AZURE_SUBSCRIPTION_ID -R rachidpeaqock/$r -b (gh variable get AZURE_SUBSCRIPTION_ID -R rachidpeaqock/mc-platform-infra)
+}
+```
+
+Then push to `main` (or `gh workflow run` the CI) on those three, and on `mc-identity-service` /
+`mc-template-service` the run also builds the `-migrate` image. Each run publishes to ACR and stops
+at "Not deployed" — the container apps do not exist yet. `CONTAINER_APPS_RG` goes on all five
+**after** 1.5, when there is something to deploy to. Images first, because a
 container app whose image cannot be pulled fails to provision, and the deployment in 1.5 with it.
 
 ```powershell

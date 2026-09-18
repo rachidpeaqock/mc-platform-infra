@@ -122,6 +122,7 @@ Subscription: **Free Trial with the spending limit ON** — Azure disables the s
 | Application Insights | `appi-milestone-command-dev` | francecentral |
 | Static Web App ×3 | `stapp-mc-{shell,dashboards,templates}-dev` | eastus2 |
 | Container Apps environment + `ca-api-gateway` | name not recorded — runbook §0 finds it | francecentral |
+| Container Registry | `acrmilestonecommanddev` — the name `registry.bicep` computes, so `foundation.bicep` adopts it. Holds `mc-api-gateway`, `mc-milestone-service`, `mc-discovery-server` (pushed by CI since 2026-08-24) and, since Sprint 23, `mc-milestone-service-migrate` | — |
 
 The three apps are **live**, and so is the gateway (`https://ca-api-gateway.wittysmoke-6cd637b5.francecentral.azurecontainerapps.io/actuator/health` → UP; `/api/**` → 401 without a token). Whether anything runs behind it cannot be told from outside — security runs before routing, so every `/api/**` call is a 401 either way — and nothing in the repos says a service was ever deployed there. Runbook §0 lists what is actually in the group; `platform.bicep` declares what should be.
 

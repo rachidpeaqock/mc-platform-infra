@@ -2662,9 +2662,16 @@ what-if will most likely find: an adopted resource with a property the template 
 (the workspace's daily cap, a static site's SKU), reported as **Modify** and worth reading rather
 than skipping.
 
+**One thing did run.** The milestone-service push that added the `azure` profile went through the
+new `java-service.yml`: 244 tests green, and — because `ACR_NAME` has been set on that repo since
+2026-08-24 — the run built the 12-migration `mc-milestone-service-migrate` image and pushed it to
+`acrmilestonecommanddev`, which turns out to exist already under exactly the name
+`registry.bicep` computes. The deploy step skipped, correctly: `CONTAINER_APPS_RG` is unset. So the
+migration-image path is proven; the migrate-then-deploy path waits for the container apps.
+
 **Left in Sprint 23, all H4:** run §1 · perform the restore drill and write the date in §5's table ·
-set `ACR_NAME` / `CONTAINER_APPS_RG` on the five service repos and watch one push deploy · the Field
-token.
+`ACR_NAME` + Azure ids on identity/template/integration, `CONTAINER_APPS_RG` on all five, and watch
+one push deploy · the Field token.
 
 And a fourth finding while opening MC-440: **the gateway's `azure` profile listed only the milestones
 route.** A profile's `routes:` list replaces the default one, so the deployed gateway could not
