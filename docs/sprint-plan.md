@@ -1606,7 +1606,7 @@ authorization authority is the unbuilt half, and it is the half that needs the s
 | Sprint | Focus | Key stories |
 |---|---|---|
 | **23** | Reliability | 🔄 **Opened 2026-09-18.** ✅ The estate as Bicep — two stages plus a budget, compiled and linted, **not yet applied** (H4) · ✅ backups declared (7-day PITR dev / 14-day geo-redundant prod) + **the restore drill written as commands, not yet performed** (H4) · ✅ alerts on gateway 5xx, crash loops, database down/CPU/storage, budget 80 % actual / 100 % forecast — ~~outbox lag~~ there is no outbox until activity-service exists · ✅ runbook · ✅ migrate-then-deploy in `java-service.yml` — see the Sprint 23 note |
-| **24** | Scale + security | 🔄 **Opened 2026-09-18.** ✅ **CDK virtual scroll on the PM tree** — 5,000 milestones in a stub, ~60 row elements in the DOM, first paint 67 ms, 9 browser assertions · ✅ k6 script + 5,000-row seed with the thresholds as promises — **not yet run** (no k6, no Docker on the dev machine; H4) · ✅ deprecation policy published · ⬜ security review · ⬜ penetration test of the gateway — both need the live environment |
+| **24** | Scale + security | 🔄 **Opened 2026-09-18.** ✅ **CDK virtual scroll on the PM tree** — 5,000 milestones in a stub, ~60 row elements in the DOM, first paint 67 ms, 9 browser assertions · ✅ k6 script + 5,000-row seed with the thresholds as promises — **not yet run** (no k6, no Docker on the dev machine; H4) · ✅ deprecation policy published · ✅ **security review** — code + read-only probes of the live edge; six findings, four fixed in code (one a Field-breaking CORS gap H1 would have found on a phone), one H4, one no-change; `docs/security-review.md` · ⬜ penetration test of the deployed estate — needs `platform.bicep` applied |
 
 ---
 
@@ -2425,7 +2425,7 @@ dependency wired, all of it or none of it.
 | | |
 |---|---|
 | `mc-milestone-service` | **244 tests**, twelve against Azurite over the real Blob API. Contract **2.11.0** |
-| `mc-api-gateway` | **52 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy, rate limiting, timeouts, fallback |
+| `mc-api-gateway` | **55 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy (incl. the native webview origins and the exact cloud list), rate limiting, timeouts, fallback |
 | `mc-identity-service` | **19 tests** — JIT provisioning, batch resolve, the directory, boundaries, contract. Pinned at **1.1.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
 | `mc-integration-service` | **34 tests** — every P6 mapping rule against a hand-computed fixture, both encodings, every refusal, the multipart endpoint, roles, preview-only, tenant guard, contract. Pinned at **1.0.0**. No database |
@@ -2713,8 +2713,21 @@ Field's version floor is raised only for a data-damaging defect, never to retire
 that remove ship expand-then-contract across two releases. Short, because everything in it is
 already enforced by a test, a trigger or the gateway.
 
-**Left in Sprint 24:** the k6 run (H4) · security review and pen test — both need the environment.
-E10's code side is done; what remains of E10 is runbook §1 and what it finds.
+**The security review** (`docs/security-review.md`): every `SecurityConfig` and every write
+mapping read (0 unguarded), the live gateway probed read-only (deny-by-default holds: only
+`/actuator/health` and `/info` answer without a token; foreign-origin preflights 403; HTTP 301s;
+HSTS, nosniff, DENY, no-referrer on everything), dependencies audited (0 across four front ends),
+secrets traced (none in any repo). Six findings. **F1, the one that mattered:** a native Field build
+presents `https://localhost` or `capacitor://localhost`, and the gateway admitted neither — a
+scheme is part of an origin — so the APK's first request would have died at the preflight with
+nothing logged. Fixed with a test, in the same change as F3 (credentials flag off — bearer, not
+cookies) and F4 (exact origins in the cloud, from Bicep, in place of every-site-in-Azure). **F2 is
+H4:** the live gateway predates `PUT` in the CORS list, so deployed Templates cannot save until the
+container app is rolled — the exact gap `CONTAINER_APPS_RG` closes. F5: Dependabot in all eleven
+repos. Gateway at **55 tests**.
+
+**Left in Sprint 24:** the k6 run (H4) · the pen test — needs the deployed estate. E10's code side
+is done; what remains of E10 is runbook §1 and what it finds.
 
 And a fourth finding while opening MC-440: **the gateway's `azure` profile listed only the milestones
 route.** A profile's `routes:` list replaces the default one, so the deployed gateway could not

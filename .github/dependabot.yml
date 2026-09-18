@@ -1,0 +1,14 @@
+# Sprint 24 security review. One weekly pull request per ecosystem,
+# minor and patch updates grouped, so the cost of staying current is one
+# review a week rather than a queue. Majors arrive alone and are a
+# decision. Security advisories are not delayed by the schedule.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions-minor-and-patch:
+        update-types: [minor, patch]

@@ -379,7 +379,7 @@ In the order they would matter for a first paying customer:
 |---|---|---|
 | Network | Postgres, vault and storage on public endpoints with Azure-services firewall rules | VNet-integrated Container Apps environment (a new environment — the gateway FQDN changes), private endpoints, `publicNetworkAccess: Disabled` |
 | Evidence access | connection string in the vault | `DefaultAzureCredential` in milestone-service + *Storage Blob Data Contributor* on `id-mc-apps` — a service change, small |
-| Edge | gateway FQDN called directly by the apps; CORS admits `*.azurestaticapps.net` | `front-door.bicep` in front of the four sites and `/api` — one origin, WAF, custom domain; then `api-config.ts` → `''` |
+| Edge | gateway FQDN called directly by the apps; CORS exact in the cloud (`CORS_ALLOWED_ORIGINS` from Bicep) since Sprint 24 | `front-door.bicep` in front of the four sites and `/api` — one origin, WAF, custom domain; then `api-config.ts` → `''` |
 | Vault | soft delete, no purge protection | `env == 'prod'` turns it on (already in `keyvault.bicep`) |
 | Backups | 7-day PITR, LRS storage | 14-day + geo-redundant and GRS storage under `env == 'prod'` (already in the templates); a *performed* drill (§5) |
 | Identity | Contributor-on-group for the GitHub identity | split: a deploy identity per repo with AcrPush + Container Apps Contributor only |

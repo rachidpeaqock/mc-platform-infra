@@ -142,6 +142,35 @@ module containerEnv 'modules/container-env.bicep' = {
 // server at three replicas of one service. SPRING_DATASOURCE_HIKARI_*
 // is Spring's relaxed binding of the property; no code change.
 
+// ---- front ends ----------------------------------------------------------
+
+var webApps = ['shell', 'dashboards', 'templates', 'field']
+
+module swa 'modules/static-web-app.bicep' = [for app in webApps: {
+  name: 'stapp-${app}'
+  params: {
+    app: app
+    env: env
+    location: staticWebAppLocation
+    sku: isProd ? 'Standard' : 'Free'
+  }
+}]
+
+// Sprint 24 security review: the gateway's CORS origins are exact in the
+// cloud — these four sites and the two origins a Capacitor webview
+// presents (https://localhost on Android, capacitor://localhost on iOS) —
+// rather than the default profile's every-site-in-Azure pattern.
+// Spelled out rather than looped: a for-body in a variable may not read a
+// module output (BCP182), and four names are four names.
+var corsAllowedOrigins = join([
+  'https://${swa[0].outputs.defaultHostname}'
+  'https://${swa[1].outputs.defaultHostname}'
+  'https://${swa[2].outputs.defaultHostname}'
+  'https://${swa[3].outputs.defaultHostname}'
+  'https://localhost'
+  'capacitor://localhost'
+], ',')
+
 module gateway 'modules/container-app.bicep' = {
   name: 'ca-api-gateway'
   params: {
@@ -161,6 +190,7 @@ module gateway 'modules/container-app.bicep' = {
       { name: 'IDENTITY_SERVICE_URI', value: 'http://ca-identity-service' }
       { name: 'TEMPLATE_SERVICE_URI', value: 'http://ca-template-service' }
       { name: 'INTEGRATION_SERVICE_URI', value: 'http://ca-integration-service' }
+      { name: 'CORS_ALLOWED_ORIGINS', value: corsAllowedOrigins }
     ])
   }
 }
@@ -342,20 +372,6 @@ module bootstrapDb 'modules/job.bicep' = {
     timeoutSeconds: 300
   }
 }
-
-// ---- front ends ----------------------------------------------------------
-
-var webApps = ['shell', 'dashboards', 'templates', 'field']
-
-module swa 'modules/static-web-app.bicep' = [for app in webApps: {
-  name: 'stapp-${app}'
-  params: {
-    app: app
-    env: env
-    location: staticWebAppLocation
-    sku: isProd ? 'Standard' : 'Free'
-  }
-}]
 
 // ---- alerts ----------------------------------------------------------------
 
