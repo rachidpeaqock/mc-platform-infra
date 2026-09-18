@@ -2424,7 +2424,7 @@ dependency wired, all of it or none of it.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **245 tests**, twelve against Azurite over the real Blob API. Contract **2.11.0** |
+| `mc-milestone-service` | **244 tests**, twelve against Azurite over the real Blob API. Contract **2.11.0** |
 | `mc-api-gateway` | **52 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy, rate limiting, timeouts, fallback |
 | `mc-identity-service` | **19 tests** — JIT provisioning, batch resolve, the directory, boundaries, contract. Pinned at **1.1.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
