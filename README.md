@@ -14,12 +14,15 @@ Shared CI/CD workflows, infrastructure-as-code, and the architecture and plannin
 | [`mc-discovery-server`](https://github.com/rachidpeaqock/mc-discovery-server) | Eureka registry. Every service registers here so the gateway can route by name |
 | [`mc-api-gateway`](https://github.com/rachidpeaqock/mc-api-gateway) | Single entry point. Routes `lb://` by service name, never by host and port |
 | [`mc-milestone-service`](https://github.com/rachidpeaqock/mc-milestone-service) | **The heart.** Milestones, audit trail, working-day calendar, dependency graph |
+| [`mc-identity-service`](https://github.com/rachidpeaqock/mc-identity-service) | Who the people are: JIT provisioning, names for actor ids, the directory |
+| [`mc-template-service`](https://github.com/rachidpeaqock/mc-template-service) | The planner's library of reusable hierarchies |
+| [`mc-integration-service`](https://github.com/rachidpeaqock/mc-integration-service) | P6 XER → the platform's project structure, previewed. No database |
 | `mc-platform-infra` | This repo |
 | [`mc-concept`](https://github.com/rachidpeaqock/mc-concept) | **Private.** The founding product documents (Concept v3 + v4) everything here descends from |
 | [`milestone-command-prototype`](https://github.com/rachidpeaqock/milestone-command-prototype) | Archived. The Angular single-workspace prototype everything was extracted from |
 | [`stones-react`](https://github.com/rachidpeaqock/stones-react) | Archived. The original React prototype, written straight from Concept v4 |
 
-Not yet created: `mc-api-client`, `mc-activity-service`, `mc-template-service`, `mc-identity-service`, `mc-ai-service`, `mc-integration-service`.
+Not yet created: `mc-api-client`, `mc-activity-service`, `mc-ai-service` — each parked against a named trigger (sprint-plan).
 
 ## Working locally
 
@@ -49,7 +52,7 @@ cd ../mc-dashboards && npm start        # http://localhost:4200
 
 Sign in with your Entra account, and the exec dashboard loads from the API — counts, RAG, lost days by reason, all computed server-side. Change a real date with a reason and watch variance recompute without the browser calculating anything.
 
-⚠️ **This works on `localhost`, not against the deployed Static Web Apps.** Those are built with the API base URL still pointing at `http://localhost:8080`, and the gateway's CORS policy only admits `localhost` origins. Pointing the deployed apps at a deployed gateway is Sprint 17 — there is no gateway in Azure yet.
+The deployed Static Web Apps call the deployed gateway directly (`api-config.ts` switches on the `.azurestaticapps.net` hostname; the gateway's CORS policy admits that origin pattern). Until Front Door is in front of both, app and API are different origins — the runbook's hardening list has the step that makes them one.
 
 The Java services are **pulled from GHCR, not built** — a Codespace has one repo checked out, not nine. Working on one? Stop its container and run it from the IDE on the same port; everything else keeps working.
 
@@ -68,6 +71,7 @@ cd ../mc-api-gateway && mvn spring-boot:run
 | [`docs/backend-architecture.md`](docs/backend-architecture.md) | Spring Boot internals applied per service: domain model, endpoints, security, testing, build |
 | [`docs/azure-deployment-plan.md`](docs/azure-deployment-plan.md) | Database schema, endpoint contract, auth model, the working-day calendar problem, concurrency and offline |
 | [`docs/sprint-plan.md`](docs/sprint-plan.md) | 10 epics, 24 sprints, per-story status. **The living tracker** |
+| [`docs/runbook.md`](docs/runbook.md) | **Operating it.** First deployment in order, deploy, roll back, rotate a secret, the restore drill, what each alert means, the hardening list |
 
 ## Shared workflows
 
@@ -92,7 +96,20 @@ It also asserts the built CSS contains `--primary` — so a design-system regres
 
 ## Infrastructure
 
-`bicep/front-door.bicep` — one origin for the three web apps (`/` → shell, `/dashboards/*`, `/templates/*`), with an origin group per app. Written, not yet deployed.
+The estate is Bicep, in two stages, plus a budget (Sprint 23):
+
+| File | Creates |
+|---|---|
+| `bicep/foundation.bicep` | the apps' managed identity · Log Analytics + App Insights + action group · ACR · Key Vault (RBAC; the vault, not the secrets) |
+| `bicep/platform.bicep` | PostgreSQL Flexible Server + a database per service · evidence storage · the Container Apps environment · the five services · a Flyway job per database and the bootstrap job that creates the per-service logins · the four Static Web Apps · six metric alerts |
+| `bicep/budget.bicep` | a monthly budget on the resource group, at subscription scope |
+| `bicep/front-door.bicep` | one origin for the web apps and `/api`. Written, not deployed — the hardening list says when |
+
+Two stages because the second reads a secret the first creates the place for: the database passwords are generated **into** the vault by a runbook step between them and never pass through a parameter, a pipeline variable or a terminal. `.github/workflows/infra.yml` compiles and lints every template on a pull request and posts a `what-if`; **nothing deploys on merge** — deploying is a `workflow_dispatch` or a person with the runbook open.
+
+The templates **adopt** what was created by hand: same names, so `what-if` shows Modify, not Create, for the workspace, App Insights, the three static sites and `ca-api-gateway`. ⚠️ They have not yet been applied — `docs/runbook.md` §1 is the first run, and the test of both.
+
+What CI does once the estate exists: `java-service.yml` pushes each service image **and a migration image** (Flyway + the service's SQL) to ACR, runs `job-migrate-<svc>` against the live database, and only on `Succeeded` rolls the container app to the new image and waits for the revision to report healthy.
 
 ### What exists in Azure
 
@@ -104,8 +121,9 @@ Subscription: **Free Trial with the spending limit ON** — Azure disables the s
 | Log Analytics | `log-milestone-command-dev` | francecentral |
 | Application Insights | `appi-milestone-command-dev` | francecentral |
 | Static Web App ×3 | `stapp-mc-{shell,dashboards,templates}-dev` | eastus2 |
+| Container Apps environment + `ca-api-gateway` | name not recorded — runbook §0 finds it | francecentral |
 
-The three apps are **live**:
+The three apps are **live**, and so is the gateway (`https://ca-api-gateway.wittysmoke-6cd637b5.francecentral.azurecontainerapps.io/actuator/health` → UP; `/api/**` → 401 without a token). Whether anything runs behind it cannot be told from outside — security runs before routing, so every `/api/**` call is a 401 either way — and nothing in the repos says a service was ever deployed there. Runbook §0 lists what is actually in the group; `platform.bicep` declares what should be.
 
 | App | URL |
 |---|---|

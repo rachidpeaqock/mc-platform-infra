@@ -1,0 +1,141 @@
+name: Infrastructure
+
+# The estate as code, checked the way the services are.
+#
+#   pull request touching bicep/   → compile + lint, and a what-if against
+#                                    the dev group so the review shows
+#                                    what would change, not what the
+#                                    author says would change
+#   workflow_dispatch               → what-if or deploy, one stage at a
+#                                    time, by a person who chose to
+#
+# Nothing deploys on merge. E10 is the epic where "built" becomes
+# "running", and each step of that is a decision the runbook walks
+# through with the person holding the subscription — a template that
+# creates a Postgres server on merge would take that decision for them.
+#
+# ⚠️ Role assignments (AcrPull, Key Vault Secrets User/Officer) need more
+# than Contributor. The GitHub identity has Contributor on the resource
+# group (README), so `foundation` from here fails on those two resources
+# until the identity is also given "Role Based Access Control
+# Administrator" on the group — or a person runs stage 1 once (runbook
+# §1). `platform` creates no role assignments and Contributor suffices.
+
+on:
+  pull_request:
+    paths:
+      - 'bicep/**'
+      - '.github/workflows/infra.yml'
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Which template
+        required: true
+        type: choice
+        options: [foundation, platform, budget]
+      mode:
+        description: what-if shows the diff; deploy applies it
+        required: true
+        type: choice
+        default: what-if
+        options: [what-if, deploy]
+      env:
+        description: Environment (parameter file suffix)
+        required: true
+        type: choice
+        default: dev
+        options: [dev]
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  RG: rg-milestone-command-${{ inputs.env || 'dev' }}
+
+jobs:
+  check:
+    name: Compile and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The compiler is the check: a template that does not build cannot
+      # be what-if'd, and lint catches the classes of mistake (unused
+      # params, hardcoded locations, secrets in outputs) a review skims past.
+      - name: Compile every template
+        run: |
+          set -euo pipefail
+          az bicep install
+          for f in bicep/*.bicep; do
+            echo "::group::$f"
+            az bicep build --file "$f" --stdout > /dev/null
+            az bicep lint --file "$f"
+            echo "::endgroup::"
+          done
+          # Parameter files need the env vars they read; placeholders are
+          # fine for a compile.
+          MC_DEPLOYER_OBJECT_ID=00000000-0000-0000-0000-000000000000 \
+            az bicep build-params --file bicep/foundation.dev.bicepparam --stdout > /dev/null
+          MC_DEPLOYER_OBJECT_ID=00000000-0000-0000-0000-000000000000 \
+            az bicep build-params --file bicep/platform.dev.bicepparam --stdout > /dev/null
+
+  what-if:
+    name: ${{ inputs.mode || 'what-if' }} · ${{ inputs.stage || 'platform' }}
+    needs: check
+    # PRs get a what-if of the platform stage (the one that changes most)
+    # when the repo is wired to Azure; dispatches do what they were told.
+    if: vars.AZURE_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # On a pull request this is advisory: before the bootstrap step has
+      # put pg-admin-password in the vault, the platform what-if cannot
+      # resolve getSecret() and fails for a reason unrelated to the change.
+      - name: Run
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        env:
+          STAGE: ${{ inputs.stage || 'platform' }}
+          MODE: ${{ inputs.mode || 'what-if' }}
+          ENVN: ${{ inputs.env || 'dev' }}
+          # The parameter files read these. The pipeline identity is the
+          # deployer here; a person sets them in their own shell (runbook §1).
+          MC_DEPLOYER_OBJECT_ID: ${{ vars.AZURE_PRINCIPAL_OBJECT_ID }}
+          MC_CONTAINER_ENV_NAME: ${{ vars.CONTAINER_ENV_NAME }}
+        run: |
+          set -euo pipefail
+          az bicep install
+          VERB=what-if; [ "$MODE" = deploy ] && VERB=create
+          case "$STAGE" in
+            budget)
+              CMD=(az deployment sub "$VERB" -l francecentral -f bicep/budget.bicep
+                   -p env="$ENVN" opsEmail="${{ vars.OPS_EMAIL }}" startDate="$(date -u +%Y-%m-01)")
+              ;;
+            *)
+              CMD=(az deployment group "$VERB" -g "$RG"
+                   -f "bicep/$STAGE.bicep" -p "bicep/$STAGE.$ENVN.bicepparam")
+              ;;
+          esac
+          echo "+ ${CMD[*]}"
+          "${CMD[@]}" | tee whatif.txt
+
+      - name: Post the what-if on the pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('whatif.txt', 'utf8').slice(0, 60000);
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: '### what-if · platform · dev\n```\n' + body + '\n```',
+            });

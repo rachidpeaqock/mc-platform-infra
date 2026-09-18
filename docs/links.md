@@ -84,6 +84,7 @@ All in [`mc-platform-infra/docs`](https://github.com/rachidpeaqock/mc-platform-i
 | | |
 |---|---|
 | [sprint-plan.md](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/docs/sprint-plan.md) | **The system of record.** Every sprint, every decision, every defect and why |
+| [runbook.md](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/docs/runbook.md) | **Operating the estate.** First deployment, deploy, roll back, rotate, restore drill, alerts, hardening list |
 | [platform-architecture.md](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/docs/platform-architecture.md) | Service decomposition, communication, infrastructure |
 | [backend-architecture.md](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/docs/backend-architecture.md) | Per-service internals, the endpoint catalogue |
 | [azure-deployment-plan.md](https://github.com/rachidpeaqock/mc-platform-infra/blob/main/docs/azure-deployment-plan.md) | Schema, resources, cost. ⚠️ No Azure *backend* resource in it exists — see §1 for what does |

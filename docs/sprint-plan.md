@@ -1605,7 +1605,7 @@ authorization authority is the unbuilt half, and it is the half that needs the s
 
 | Sprint | Focus | Key stories |
 |---|---|---|
-| **23** | Reliability | Prod environment via Bicep · backups + **a restore drill actually performed** · alerts on outbox lag, 5xx, cost · runbook |
+| **23** | Reliability | 🔄 **Opened 2026-09-18.** ✅ The estate as Bicep — two stages plus a budget, compiled and linted, **not yet applied** (H4) · ✅ backups declared (7-day PITR dev / 14-day geo-redundant prod) + **the restore drill written as commands, not yet performed** (H4) · ✅ alerts on gateway 5xx, crash loops, database down/CPU/storage, budget 80 % actual / 100 % forecast — ~~outbox lag~~ there is no outbox until activity-service exists · ✅ runbook · ✅ migrate-then-deploy in `java-service.yml` — see the Sprint 23 note |
 | **24** | Scale + security | k6 load test at **5,000 milestones** (the PM tree renders unvirtualized — expect to add CDK virtual scroll) · security review · penetration test of the gateway · deprecation policy published |
 
 ---
@@ -2402,7 +2402,7 @@ testing pass, and whatever it finds becomes bug tickets then. Until that pass, t
 | H1 | **Install the APK on a real phone** | Camera, GPS and the privacy cover have only ever run against browser fallbacks. Native-only defects have been accumulating since Sprint 3 by deliberate choice |
 | H2 | **Dev-seed `oid` swap** | One `UPDATE`, needs a real Entra object id. Until it runs, a real Field sign-in correctly sees an empty list |
 | H3 | **Design-system release** | The `attribution()` fix is committed and unpublished, so Field-sourced feed rows still read "Field" rather than the person's name |
-| H4 | **Anything needing Azure** | B16, Phase 7, the restore drill, the load test. No subscription is in use |
+| H4 | **Anything needing Azure** | Since Sprint 23 this is `docs/runbook.md` §1 (first deployment, in order), §5 (the restore drill), the `ACR_NAME` / `CONTAINER_APPS_RG` variables on the five service repos, the Field static-site token, then the load test. The subscription exists; the templates have not been applied to it |
 
 ⚠️ **H1 is the one with real risk attached.** Everything native is written against Capacitor's
 web fallbacks; the first device run will find more than it would have if devices had been in the
@@ -2411,7 +2411,7 @@ comes due in that pass.
 
 ---
 
-## Where things actually stand · 2026-09-17 (Sprints 14 and 16 closed; E6 complete)
+## Where things actually stand · 2026-09-18 (Sprint 23 open; E10 begun)
 
 **Sprints 0–14 and 16 complete — E6 was pulled forward whole. Epic E4 finished bar shipping; E5
 closed or parked; E6 built; E7 built early.** A crew lead can record an update with no signal, photograph the reason,
@@ -2597,6 +2597,74 @@ actor when a file arrives at 03:00?
 **Not done, and known:** XER only (P6 XML is a second reader over the same mapper); one project per
 file (a multi-project export reads the first and says so); no "save as template" from an import
 (offsets would need a calendar the file does not have); no outbound.
+
+### Sprint 23 · opened 2026-09-18 — the estate as code
+
+**Why this and not Sprint 22 or E8.** Outbound integration has no named destination; the AI service
+has no audit trail to build an eval set from. E10 is the epic where "green in CI" becomes "running",
+and it was the critical path: three services and a fourth front end existed only in CI, and every
+H4 item was a portal click. The Bicep is what turns H4 from a checklist into a what-if and a create.
+
+| | |
+|---|---|
+| `bicep/foundation.bicep` | the apps' one managed identity · Log Analytics + App Insights (adopted) + action group · ACR Basic, admin user off, AcrPull to the identity · Key Vault, RBAC, soft-delete; **declares no secret** |
+| `bicep/platform.bicep` | Flexible Server B1ms/PG 17 + `milestone_db` `identity_db` `template_db` · evidence storage (public access off, 30-day soft delete) with its connection string written to the vault inside ARM · the Container Apps environment (adopting the existing one, by name — see below) · `ca-{api-gateway,milestone-service,identity-service,template-service,integration-service}` · `job-migrate-{milestone,identity,template}` · `job-bootstrap-db` · `stapp-mc-{shell,dashboards,templates,field}-dev` · six alerts |
+| `bicep/budget.bicep` | subscription scope, filtered to the group; 80 % actual and 100 % *forecast* |
+| `infra.yml` | compile + lint every template on PR, what-if posted as a comment; **deploy only by `workflow_dispatch`** |
+| `java-service.yml` | builds a second image per database service — Flyway + that service's SQL — and, when `CONTAINER_APPS_RG` is set: run the migration job, wait for `Succeeded`, then roll the app and wait for the revision to report healthy. A failed migration leaves the running revision untouched |
+| `docs/runbook.md` | first deployment in the order it has to happen · deploy · roll back (and why an image rollback does not roll back a migration) · rotate each secret · the restore drill as commands · what each alert means and the first command · logs · cost · the hardening list · tear-down |
+| milestone-service | the `azure` profile block the other four services already carried. Without it, `SPRING_PROFILES_ACTIVE=azure` would have started the service with Eureka enabled, hunting for `localhost:8761` |
+
+**Decisions worth recording.**
+
+*Two templates, not one.* The platform stage reads `pg-admin-password` from the vault with
+`getSecret()`; the foundation stage creates the vault. One template would need the password as a
+parameter on the first run and a vault reference on every later one. Two templates and a
+bootstrap step between them — four passwords generated straight into the vault by a loop that
+never prints them — is the honest shape of that ordering, and it means **no password is a
+parameter, a pipeline variable, or a line in a terminal history**, which is the README's rule
+applied to the one place it was hardest to keep.
+
+*The per-service logins are a job, not a template.* ARM cannot run SQL. `job-bootstrap-db` is
+`init/01-databases.sql` for the cloud: `postgres:17-alpine`, `CREATE ROLE` if missing, `ALTER ROLE
+… PASSWORD` always, grants, `REVOKE … FROM PUBLIC` — with the passwords as Key Vault references. Because
+`ALTER` runs every time, **re-running the job after changing a vault secret is the password
+rotation**; there is no second procedure to get wrong.
+
+*Migrations ride in their own image.* Locally compose bind-mounts each service's SQL into Flyway's
+image. The cloud cannot mount a repo, so `java-service.yml` builds `<service>-migrate` — `FROM
+flyway/flyway:11-alpine` plus one `COPY` — next to the service image, same tag, and the job runs it.
+No Java change, no "migrate-only" flag in the application, and the JDK stays out of the migration
+path exactly as MC-304 wanted.
+
+*Connection arithmetic, written down.* B1ms allows 50 connections. Hikari's default pool is 10 per
+replica; three database services at three replicas would exceed the server on their own. The
+template caps replicas at 2 and pools at 6/4/4 via Spring's relaxed binding
+(`SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE`) — 34 in the worst case — and the reasoning sits in a
+comment beside the numbers so the next SKU change recalculates rather than guesses.
+
+*What is deliberately absent.* No Event Hubs: no service produces or consumes an event. No Web
+PubSub, no `activity_db`: activity-service is parked. No Front Door: it costs ~€30/month and the
+apps work cross-origin today; the hardening list says when. No Field app registration: it needs the
+iOS bundle id (MC-004). Each would bill for code that does not exist.
+
+⚠️ **The one thing the templates cannot know.** The Container Apps environment `ca-api-gateway`
+lives in was created by hand and its name was never recorded — only its default domain shows, in
+the gateway URL every front end is built with. `platform.bicep` takes the name as a parameter and
+adopts the environment; left to default, it creates a second one, the gateway moves, and its FQDN
+changes under four apps. Runbook §0 is one `az containerapp env list` for exactly this reason.
+
+⚠️ **None of it has run.** Everything compiles (`bicep build`, `bicep lint`, both parameter files)
+and nothing has been applied: this session's Azure CLI token had expired and re-authenticating is a
+device-code flow a person does. That is the correct place for the line — H4 is the manual phase,
+and the first execution of runbook §1 is the test of both the templates and the document. What a
+what-if will most likely find: an adopted resource with a property the template states differently
+(the workspace's daily cap, a static site's SKU), reported as **Modify** and worth reading rather
+than skipping.
+
+**Left in Sprint 23, all H4:** run §1 · perform the restore drill and write the date in §5's table ·
+set `ACR_NAME` / `CONTAINER_APPS_RG` on the five service repos and watch one push deploy · the Field
+token.
 
 And a fourth finding while opening MC-440: **the gateway's `azure` profile listed only the milestones
 route.** A profile's `routes:` list replaces the default one, so the deployed gateway could not

@@ -260,3 +260,116 @@ jobs:
           # runs; without it every image build re-resolves the whole tree.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # ---- The migration image ------------------------------------------
+      # Migrations are a discrete step, not something the service does at
+      # startup (MC-304). Locally compose mounts the SQL into Flyway's own
+      # image; the cloud cannot bind-mount a repo, so the same SQL is baked
+      # into a second, tiny image — flyway/flyway plus one COPY — tagged
+      # like the service image. platform.bicep runs it as job-migrate-<svc>.
+      # Skipped for services with no database (gateway, integration).
+      - name: Assemble the migration image
+        id: migrate-context
+        if: vars.ACR_NAME != '' && hashFiles('src/main/resources/db/migration/*.sql') != ''
+        run: |
+          mkdir -p .migrate
+          cp -r src/main/resources/db/migration .migrate/sql
+          printf 'FROM flyway/flyway:11-alpine\nCOPY sql/ /flyway/sql/\n' > .migrate/Dockerfile
+          echo "count=$(ls .migrate/sql/*.sql | wc -l)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push the migration image
+        if: steps.migrate-context.outcome == 'success'
+        uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: .migrate
+          push: true
+          tags: |
+            ${{ vars.ACR_NAME }}.azurecr.io/${{ inputs.service-name }}-migrate:main
+            ${{ vars.ACR_NAME }}.azurecr.io/${{ inputs.service-name }}-migrate:${{ github.sha }}
+
+      # ---- Migrate, then deploy -------------------------------------------
+      # Only when the calling repo carries CONTAINER_APPS_RG, and only for a
+      # service whose container app exists (platform.bicep applied). The
+      # order is the rule: the job runs the new migrations against the live
+      # database and must SUCCEED before the new image is rolled; a failed
+      # migration stops here, with its log in this step, and the running
+      # revision is untouched. Names follow platform.bicep —
+      # mc-milestone-service → ca-milestone-service, job-migrate-milestone.
+      #
+      # The update creates a new revision; Single revision mode shifts
+      # traffic to it only once its readiness probe passes, and the last
+      # step below refuses to call the run green until that has happened.
+      # It does not roll back on its own — runbook §3 is one command, and a
+      # person should read the reason first.
+      - name: Migrate, then deploy to Container Apps
+        if: vars.ACR_NAME != '' && vars.CONTAINER_APPS_RG != ''
+        env:
+          RG: ${{ vars.CONTAINER_APPS_RG }}
+          SVC: ${{ inputs.service-name }}
+          ACR: ${{ vars.ACR_NAME }}.azurecr.io
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          APP="ca-${SVC#mc-}"
+          STEM="${SVC#mc-}"; STEM="${STEM%-service}"
+          JOB="job-migrate-${STEM}"
+
+          if ! az containerapp show -n "$APP" -g "$RG" -o none 2>/dev/null; then
+            echo "::notice::No container app '$APP' in '$RG'. Image published; nothing deployed. Apply bicep/platform.bicep first (runbook §1.5)."
+            echo "### Not deployed" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`$APP\` does not exist in \`$RG\` yet. The image \`$ACR/$SVC:$SHA\` is in ACR." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if az containerapp job show -n "$JOB" -g "$RG" -o none 2>/dev/null; then
+            echo "Migrating with $JOB…"
+            az containerapp job update -n "$JOB" -g "$RG" --image "$ACR/$SVC-migrate:$SHA" -o none
+            EXEC=$(az containerapp job start -n "$JOB" -g "$RG" --query name -o tsv)
+            STATUS=Running
+            for _ in $(seq 1 60); do
+              STATUS=$(az containerapp job execution show -n "$JOB" -g "$RG" --job-execution-name "$EXEC" --query properties.status -o tsv)
+              case "$STATUS" in
+                Succeeded) break ;;
+                Failed|Stopped)
+                  echo "::error::Migration $EXEC ended $STATUS. The running revision was not touched."
+                  az containerapp job logs show -n "$JOB" -g "$RG" --execution "$EXEC" --container "$JOB" --format text || true
+                  exit 1 ;;
+              esac
+              sleep 10
+            done
+            [ "$STATUS" = Succeeded ] || { echo "::error::Migration still '$STATUS' after 10 minutes."; exit 1; }
+            echo "Migration $EXEC succeeded."
+          else
+            echo "No $JOB — this service has no database."
+          fi
+
+          echo "Rolling $APP to $ACR/$SVC:$SHA…"
+          az containerapp update -n "$APP" -g "$RG" --image "$ACR/$SVC:$SHA" -o none
+          LATEST=$(az containerapp show -n "$APP" -g "$RG" --query properties.latestRevisionName -o tsv)
+
+          # Wait for the new revision to take traffic. A JVM on 0.5 vCPU is
+          # 30–90 s to ready; the startup probe allows 120.
+          HEALTH=Unknown
+          for _ in $(seq 1 30); do
+            read -r HEALTH RUNNING <<<"$(az containerapp revision show -n "$APP" -g "$RG" --revision "$LATEST" --query '[properties.healthState, properties.runningState]' -o tsv | tr '\n' ' ')"
+            case "$RUNNING" in
+              Running|RunningAtMaxScale) [ "$HEALTH" = Healthy ] && break ;;
+              Failed|Degraded)
+                echo "::error::Revision $LATEST is $RUNNING/$HEALTH. Traffic stays on the previous revision. \`az containerapp logs show -n $APP -g $RG --revision $LATEST --type system\`"
+                exit 1 ;;
+            esac
+            sleep 10
+          done
+          [ "$HEALTH" = Healthy ] || { echo "::error::Revision $LATEST not healthy after 5 minutes ($RUNNING/$HEALTH)."; exit 1; }
+
+          {
+            echo "### Deployed"
+            echo "| | |"
+            echo "|---|---|"
+            echo "| app | \`$APP\` in \`$RG\` |"
+            echo "| image | \`$ACR/$SVC:$SHA\` |"
+            echo "| revision | \`$LATEST\` — $RUNNING, $HEALTH |"
+            echo "| migrated | ${EXEC:-no database} |"
+          } >> "$GITHUB_STEP_SUMMARY"
