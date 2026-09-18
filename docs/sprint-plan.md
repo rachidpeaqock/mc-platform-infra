@@ -2424,11 +2424,11 @@ dependency wired, all of it or none of it.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **242 tests**, twelve against Azurite over the real Blob API. Contract **2.9.0** |
+| `mc-milestone-service` | **243 tests**, twelve against Azurite over the real Blob API. Contract **2.10.0** |
 | `mc-api-gateway` | **50 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy, rate limiting, timeouts, fallback |
-| `mc-identity-service` | **18 tests** — JIT provisioning, batch resolve, boundaries, contract. Pinned at **1.0.0** |
+| `mc-identity-service` | **19 tests** — JIT provisioning, batch resolve, the directory, boundaries, contract. Pinned at **1.1.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
-| `mc-dashboards` | **80 browser assertions**, in CI |
+| `mc-dashboards` | **89 browser assertions**, in CI |
 | `mc-field` | **84 browser assertions**, in CI, plus an installable Android APK |
 | `mc-templates` | **57 browser assertions**, in CI |
 
@@ -2547,6 +2547,19 @@ does that, and the milestone edit endpoint (MC-335) already can.
 | Remembered | Per browser session (`sessionStorage`) and on the URL, so a copied link lands on the same project | **On the device** (`localStorage`), survives an app restart, until changed — a phone belongs to one site |
 | On switch | Full store reload; exec and PM views follow without knowing | Full reload; **the outbox is untouched** — queued updates are keyed by milestone id, unique across projects |
 | Empty case | — | A project with nothing assigned to this user reads as empty, not broken: a project born from a template has no owners yet |
+
+**Owners — ✅ 2026-09-18.** A project born from a template has no owners, and Field's list on it is
+empty until someone assigns people. Three small changes, one per tier:
+
+| | |
+|---|---|
+| identity-service **1.1.0** | `GET /users/directory` — everyone who has signed in, bounded at 500, filterable by name or email. Deliberately a separate read from `resolve()`, whose batch is capped *so that nobody reads the directory through it*. ⚠️ The honest limit: only people who have signed in exist here; a colleague who never opened the platform cannot be assigned until they do. Graph sync is a different story |
+| milestone-service **2.10.0** | `clearOwner` on `PATCH /milestones/{id}`. Unassigning had no word: `COALESCE(:owner, owner_id)` treats null as "leave alone", so a person who left a project stayed on every milestone short of SQL |
+| `mc-dashboards` | The owner field in the milestone form was a note saying identity-service did not exist. It is a picker now, "Unassigned" first, the limit stated beneath it. Only an owner *change* travels. The board and drawer resolve ids to names; an id identity cannot name still says "Unresolved owner" rather than dressing up as initials |
+
+One stub defect found on the way and worth recording: the dashboards stub's users had ids like
+`u-pm-0001`, so the view's "is this an id?" check treated them as names and every owner assertion
+would have passed for the wrong reason. Real ids are UUIDs; the stub's are now too.
 
 And a fourth finding while opening it: **the gateway's `azure` profile listed only the milestones
 route.** A profile's `routes:` list replaces the default one, so the deployed gateway could not
