@@ -1539,7 +1539,7 @@ gap is the standing risk in Epic E4, and it is not closed by this sprint.
 | Sprint | Focus | Key stories |
 |---|---|---|
 | **13** | Event feed | `activity-service` + own database · Kafka consumer · activity feed API · per-user notification read state (replacing `localStorage['mc.notif.seen']`) |
-| **14** | Push | Transactional outbox → **Web PubSub** for web · **Notification Hubs → APNs/FCM** for mobile when backgrounded · at-least-once + client dedupe · toast and bell wired in all apps |
+| **14** | Push | 🔄 **Reopened 2026-09-19** — the trigger the parking note named ("a consumer that needs to be told rather than ask") was met the day a person changed a date on Field and watched Dashboards not move. **First half built the same evening:** the visible board re-reads tree, summary and activity every 20 s and the moment the tab returns to the foreground — no loading state, no lost selection; skipped while a write of ours is in flight. ⬜ Second half, the channel: transactional outbox → **Web PubSub** for web · **Notification Hubs → APNs/FCM** for mobile when backgrounded · at-least-once + client dedupe. The polling stays as the fallback when a socket drops |
 
 ---
 
@@ -2429,7 +2429,7 @@ dependency wired, all of it or none of it.
 | `mc-identity-service` | **19 tests** — JIT provisioning, batch resolve, the directory, boundaries, contract. Pinned at **1.1.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
 | `mc-integration-service` | **46 tests** — every P6 mapping rule against a hand-computed fixture, the XML twin of that fixture previewing identically, both encodings, every refusal (XXE included), project choice, the multipart endpoint, roles, preview-only, tenant guard, contract. Pinned at **1.2.0**. No database |
-| `mc-dashboards` | **99 browser assertions**, in CI — nine of them against a 5,000-milestone project |
+| `mc-dashboards` | **103 browser assertions**, in CI — nine against a 5,000-milestone project, four for the board catching up with someone else's change |
 | `mc-field` | **85 browser assertions**, in CI, plus an installable Android APK; web build live |
 | `mc-templates` | **78 browser assertions**, in CI |
 
@@ -2774,8 +2774,13 @@ project out of it, create it, save it back as a template, open it in Dashboards,
 with a reason, and see the change attributed to them by name — against Postgres in France Central,
 through a gateway that self-deploys, with every password in a vault nobody has read.
 
-**Left from the walkthrough:** the Field write path (one update from the phone view) · H1, the APK
-on a device · H3, the design-system release · a real client's export.
+**The Field write path, driven:** an update from the phone view landed in the audit trail — and the
+owner's next sentence reopened Sprint 14: *"it works, but not in real time."* Dashboards fetched on
+load and on the bell, never on its own. The polling half of the answer shipped the same evening
+(above, Sprint 14); the push channel is the sprint's second half.
+
+**Left from the walkthrough:** H1, the APK on a device · H3, the design-system release · a real
+client's export.
 
 ### Sprint 24 · opened 2026-09-18 — the number the risk register named
 
