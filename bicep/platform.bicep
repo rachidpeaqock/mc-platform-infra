@@ -323,6 +323,12 @@ module migrate 'modules/job.bicep' = [for m in migrations: {
       { name: 'FLYWAY_USER', value: m.user }
       { name: 'FLYWAY_LOCATIONS', value: 'filesystem:/flyway/sql' }
       { name: 'FLYWAY_CONNECT_RETRIES', value: '10' }
+      // The hand-built caj-migrate applied a V900 dev seed to milestone_db
+      // ahead of V7–V12, so Flyway's validate sees those as out of order
+      // and refuses. They are genuinely pending. Allowing out-of-order
+      // costs nothing on the other two databases, which the templates
+      // created empty, and it is what makes the adopted one migratable.
+      { name: 'FLYWAY_OUT_OF_ORDER', value: 'true' }
     ]
     secrets: [
       { name: 'db-password', envName: 'FLYWAY_PASSWORD', keyVaultUrl: '${secretUrl}pg-${m.service}-svc-password' }
@@ -352,12 +358,15 @@ EOSQL
   # ALTER. Hand what the administrator owns in this database to the
   # service's login: GRANT the role to ourselves so REASSIGN is allowed,
   # reassign, and the database itself with it. A no-op on a fresh one.
+  # Order matters, and the first run got it wrong: a table's new owner
+  # must already hold CREATE on its schema, or REASSIGN answers
+  # "permission denied for schema public". Schema grant first.
   psql -v ON_ERROR_STOP=1 -d "$db" \
+    -c "REVOKE ALL ON SCHEMA public FROM PUBLIC" \
+    -c "GRANT ALL ON SCHEMA public TO $role" \
     -c "GRANT $role TO CURRENT_USER" \
     -c "REASSIGN OWNED BY CURRENT_USER TO $role" \
-    -c "ALTER DATABASE $db OWNER TO $role" \
-    -c "REVOKE ALL ON SCHEMA public FROM PUBLIC" \
-    -c "GRANT ALL ON SCHEMA public TO $role"
+    -c "ALTER DATABASE $db OWNER TO $role"
   echo "ok $role -> $db"
 }
 ensure milestone_svc milestone_db "$MILESTONE_SVC_PASSWORD"

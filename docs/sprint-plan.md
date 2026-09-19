@@ -2708,8 +2708,38 @@ copies it into the vault rather than minting one), `milestone_db` is owned by `m
 bootstrap job now `REASSIGN OWNED`s it to `milestone_svc`), and the gateway routes by internal
 FQDN, which is the form Bicep now writes because it is the form known to work.
 
-**Left in Sprint 23, all H4:** run §1 · the restore drill · `CONTAINER_APPS_RG` on the other four
-service repos · the Field token.
+### Sprint 23 · 2026-09-19, afternoon — runbook §1, run
+
+**The whole estate is deployed from the templates**, adopted where it existed, created where it did
+not. Nine steps, ~2 h, with five things the first run found and folded back into the templates and
+the runbook (each marked ⚠️ *found 2026-09-19* where it lives):
+
+| | |
+|---|---|
+| foundation | identity, vault, action group created; registry, workspace, App Insights adopted |
+| vault | admin password copied from the app's secret (28 chars, never shown), three logins minted — **as ARM resources**, because the vault's data plane is walled off from the development machine like everything that is not ARM |
+| images | three new repos needed federated credentials (both subject forms) and a publish-on-dispatch fix; 19 / 28 / 46 tests, images in ACR |
+| platform | `Succeeded` on the third attempt: `getSecret()` needs `enabledForTemplateDeployment`; the static sites' GitHub linkage had to be stated; the Postgres Entra-admin child cannot be what-if'd before the server has Entra auth on |
+| bootstrap | `permission denied for schema public` — schema grant before `REASSIGN OWNED`; then `milestone_db` handed from `mcadmin` to `milestone_svc` |
+| migrate | identity, template first time; milestone after `FLYWAY_OUT_OF_ORDER` — the hand-built job had seeded `V900` above the six pending migrations |
+| proof | through the gateway with a CLI-minted user token: projects and summary from milestone-service **as `milestone_svc`**, `/me` from identity-service (first JIT user, 11:22 UTC), `[]` from template-service, **403** from integration-service — reached and authorizing; the account carries `PM`, the endpoint wants `PLANNER` |
+| retire | `ca-discovery-server`, `caj-migrate`, `id-milestone-pull` deleted — nothing registers with Eureka any more |
+| Field | `stapp-mc-field-dev` created; token in the repo; hostname in the three apps' `platform-apps.ts`; first deploy pushed |
+| budget | `budget-mc-dev`, 60/month, 80 % actual / 100 % forecast |
+| self-deploy | `CONTAINER_APPS_RG` on all five service repos |
+
+**The machine's limits, named.** The development machine reaches ARM and nothing else: Key Vault,
+the registry, the Log Analytics query endpoint, the container-apps log stream and the Postgres port
+all fail TLS verification behind its proxy. Three tools came out of that: `vault-bootstrap.bicep`
+(secrets as ARM resources), `job-bootstrap-db` (SQL as a job), and `ops-logs.yml` (logs read from a
+GitHub runner, read-only) — the last is how the two job failures were diagnosed in minutes.
+
+**One Entra decision left for the owner:** the account has the `PM` app role; `PLANNER` is what
+template saves, imports and project creation need. One role assignment in the Enterprise
+Application, or `az rest` to Graph.
+
+**Left in Sprint 23:** the restore drill (running as this is written) · the Postgres Entra
+administrator, a second `platform` deploy with `MC_DEPLOYER_OBJECT_ID` set.
 
 ### Sprint 24 · opened 2026-09-18 — the number the risk register named
 

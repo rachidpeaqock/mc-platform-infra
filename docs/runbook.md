@@ -3,11 +3,16 @@
 **Written:** 2026-09-18 (Sprint 23) · **Against:** `bicep/` at the same commit · **Environment:** `dev` in `rg-milestone-command-dev`
 
 This is what a person does to the running estate, in the order they will need it. Every command is
-real and every name is the one Bicep produces; where a name is not known until Azure answers, the
-command that finds it comes first. It is written against the templates rather than against a live
-environment — the templates compile, the environment has not yet been deployed from them, and the
-first run of §1 is the test of this document. Anything that turns out wrong gets corrected here,
-not worked around.
+real and every name is the one Bicep produces. **§1 was run for the first time on 2026-09-19**, and
+what it found is folded back in below rather than left as a war story: five things the templates or
+this document had wrong, each marked ⚠️ *found 2026-09-19* where it lives.
+
+> ⚠️ **The development machine reaches ARM and nothing else.** Key Vault's data plane, the
+> registry, the Log Analytics query endpoint, the container-apps log stream and the Postgres port
+> all fail behind its TLS-intercepting proxy. Everything below that is not ARM — reading a log,
+> writing a secret, checking a table — is therefore done either as an ARM resource
+> (`vault-bootstrap.bicep`), as a Container Apps job (`job-bootstrap-db`), or from a GitHub runner
+> (`.github/workflows/ops-logs.yml`, read-only: `gh workflow run ops-logs.yml -f target=<app|job> -f kind=<app|job>`).
 
 > ⚠️ **Two rules before any command.** (1) `$env:AZURE_CONFIG_DIR = "$HOME\.azure-personal"` on
 > every invocation — the default profile on the development machine is a corporate session (README,
@@ -49,6 +54,18 @@ from `dev` to `azure` profile ends its use of Eureka, after which `ca-discovery-
 Two templates and a step between them, because the second reads a secret the first creates the
 place for (`bicep/foundation.bicep` explains the split).
 
+### 1.0 Sign in
+
+The tenant enforces MFA; a cached token is refused as "blocked by security defaults". Device-code
+codes expire unused if the browser is not open. What works, in one go:
+
+```powershell
+$env:AZURE_CONFIG_DIR = "$HOME\.azure-personal"
+az config set core.enable_broker_on_windows=false     # or the Windows account picker offers the corporate account
+$env:BROWSER = "$env:LOCALAPPDATA\Programs\Opera\opera.exe"   # not the default browser's corporate SSO
+az login --tenant 5b6fa978-e0da-4f01-bb84-37309bc3fe60
+```
+
 ### 1.1 Identify yourself to the templates
 
 ```powershell
@@ -68,38 +85,34 @@ az deployment group what-if -g rg-milestone-command-dev -f bicep/foundation.bice
 az deployment group create  -g rg-milestone-command-dev -f bicep/foundation.bicep -p bicep/foundation.dev.bicepparam
 ```
 
-Creates `id-mc-apps-dev` (the identity every app runs as), `acrmilestonecommanddev`,
-`kv-mc-milestone-dev`, `ag-mc-dev-ops`, and adopts the workspace and App Insights. Role assignments
-need Owner or *User Access Administrator* on the group — you have it as subscription owner; the
-GitHub identity does not (see `infra.yml`), which is why a person runs this stage.
+Creates `id-mc-apps-dev` (the identity every app runs as), `kv-mc-milestone-dev`, `ag-mc-dev-ops`,
+and adopts the registry, the workspace and App Insights. Role assignments need Owner or *User
+Access Administrator* on the group — you have it as subscription owner; the GitHub identity does
+not (see `infra.yml`), which is why a person runs this stage. ⚠️ *found 2026-09-19:* the what-if
+reported App Insights retention 90 → 30; the template now pins 90 (the free allowance). Ran in ~1 min.
 
 ### 1.3 The passwords — into the vault, never seen
 
 The administrator password **already exists**: `psql-milestone-command-dev` was created by hand and
-`ca-milestone-service` holds it as the container-app secret `dbpw`. `platform.bicep` sets
+`ca-milestone-service` held it as the container-app secret `dbpw`. `platform.bicep` sets
 `administratorLoginPassword` from the vault on every deploy, so the vault must hold the *current*
-value or the first deploy rotates it under the running app. Copy it across without printing it:
+value or the first deploy rotates it under the running app.
+
+⚠️ *found 2026-09-19:* `az keyvault secret set` is the vault's data plane and fails from this
+machine. The secrets are written as ARM resources instead — `vault-bootstrap.bicep`, **run once**
+(its three minted passwords default to fresh GUIDs; a second run would rotate them):
 
 ```powershell
-$kv = "kv-mc-milestone-dev"
-az keyvault secret set --vault-name $kv --name pg-admin-password -o none `
-  --value (az containerapp secret show -n ca-milestone-service -g rg-milestone-command-dev --secret-name dbpw --query value -o tsv)
+$pw = az containerapp secret show -n ca-milestone-service -g rg-milestone-command-dev --secret-name dbpw --query value -o tsv
+az deployment group create -g rg-milestone-command-dev -n vault-bootstrap -f bicep/vault-bootstrap.bicep -p existingAdminPassword=$pw -o none
+Remove-Variable pw
+az rest --method get --url "https://management.azure.com/subscriptions/f5dd2845-c223-47a4-9539-724ad720e327/resourceGroups/rg-milestone-command-dev/providers/Microsoft.KeyVault/vaults/kv-mc-milestone-dev/secrets?api-version=2023-07-01" --query "value[].name" -o tsv
 ```
 
-The three service logins do not exist yet; those are minted:
-
-```powershell
-foreach ($s in 'pg-milestone-svc-password','pg-identity-svc-password','pg-template-svc-password') {
-  $bytes = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-  $value = [Convert]::ToBase64String($bytes) -replace '[^A-Za-z0-9]', 'x'
-  az keyvault secret set --vault-name $kv --name $s --value $value -o none
-  Remove-Variable value
-}
-az keyvault secret list --vault-name $kv --query "[].name" -o tsv
-```
-
-Four names, no values on screen. `evidence-connection-string` is the fifth; Bicep writes it in 1.5
-because it created the storage account.
+Four names (the list pages at three — follow `nextLink` or fetch the fourth by name), no values on
+screen. `evidence-connection-string` is the fifth; Bicep writes it in 1.5 because it created the
+storage account. Once the old `dbpw` secret is gone from the app (1.5 replaces it), the vault is the
+only place the administrator password exists.
 
 RBAC on a new vault takes a minute to propagate; a `Forbidden` on the first `secret set` is that, not
 a mistake — wait and retry.
@@ -140,7 +153,25 @@ az acr repository list -n acrmilestonecommanddev -o tsv     # five services + th
 ```
 
 The GitHub identity needs **AcrPush** on the registry (Contributor on the group covers it) and
-Contributor on the group for `az containerapp update` (it has it).
+Contributor on the group for `az containerapp update` (it has it). ⚠️ *found 2026-09-19:* it also
+needs a **federated credential per repository** — the three new repos failed `azure/login` with
+`AADSTS700213` until they had one. GitHub now presents the *immutable* subject form
+(`repo:owner@id/repo@id:ref:…`), so both forms are added:
+
+```powershell
+$app = "86be49e1-6fd7-451f-b7bb-f94316cee4df"          # Milestone Command GitHub Actions
+$ownerId = gh api users/rachidpeaqock --jq .id
+foreach ($r in 'mc-identity-service','mc-template-service','mc-integration-service') {
+  $repoId = gh api repos/rachidpeaqock/$r --jq .id
+  @{ name="gh-$r-main"; issuer="https://token.actions.githubusercontent.com"; subject="repo:rachidpeaqock/$r:ref:refs/heads/main"; audiences=@("api://AzureADTokenExchange") } | ConvertTo-Json | Set-Content fc.json
+  az ad app federated-credential create --id $app --parameters fc.json -o none
+  @{ name="gh-$r-main-immutable"; issuer="https://token.actions.githubusercontent.com"; subject="repo:rachidpeaqock@$ownerId/$r@${repoId}:ref:refs/heads/main"; audiences=@("api://AzureADTokenExchange") } | ConvertTo-Json | Set-Content fc.json
+  az ad app federated-credential create --id $app --parameters fc.json -o none
+}
+```
+
+And a manual run of `main` must publish: `java-service.yml` now does so on `workflow_dispatch`, and
+each service's `ci.yml` has the trigger.
 
 ### 1.5 Platform
 
@@ -164,6 +195,15 @@ anywhere is a stop.
 so between this deploy and 1.6 the app restarts on a failed connection. Run 1.6 straight after; it
 takes a minute.
 
+⚠️ *found 2026-09-19, three times:* the first `create` failed at parameter resolution with
+`KeyVaultParameterReferenceSecretRetrieveFailed … Access denied to first party service` — the
+vault needs `enabledForTemplateDeployment: true` for `getSecret()`; `keyvault.bicep` sets it now,
+and it took a foundation re-run. The what-if also showed the three hand-made static sites losing
+`provider`/`repositoryUrl`/`branch` — the module now states them, so they are a no-op. And the
+Postgres Entra-administrator child cannot be *predicted* while the server still has Entra auth
+disabled (`BadRequest` in what-if); run the first deploy without `MC_DEPLOYER_OBJECT_ID`, then a
+second with it once the server reports `activeDirectoryAuth: Enabled`. Ran in ~9 min.
+
 Postgres takes ~10 minutes. The gateway and integration-service come up; the three database
 services come up *failing* — their databases have no roles and no schema yet (1.6). That is the
 designed order, not a fault: `SchemaVersionGuard` refuses to serve against an un-migrated database
@@ -185,6 +225,28 @@ az containerapp list -g $rg --query "[].{app:name, running:properties.runningSta
 ```
 
 CI does 1.6's migrate step on every later push; the bootstrap job runs once, and again only for §4.
+
+⚠️ *found 2026-09-19, twice:* the bootstrap's first run died with `permission denied for schema
+public` — a table's new owner must already hold `CREATE` on the schema before `REASSIGN OWNED` can
+hand it over, so the schema grant now comes first. And `job-migrate-milestone` refused with
+*"resolved migration not applied"* for V7–V12: the hand-built `caj-migrate` had applied a `V900` dev
+seed, so everything below it is out of order to Flyway. `FLYWAY_OUT_OF_ORDER=true` on the jobs; the
+migrations were genuinely pending and applied cleanly. Identity and template migrated first time.
+
+**Proof through the gateway**, with a user token the CLI can mint for the API:
+
+```powershell
+$tok = az account get-access-token --resource api://milestone-command --query accessToken -o tsv
+curl -s -H "Authorization: Bearer $tok" $gw/api/v1/projects          # milestone-service, as milestone_svc
+curl -s -H "Authorization: Bearer $tok" $gw/api/v1/me                # identity-service — JIT-provisions you
+curl -s -H "Authorization: Bearer $tok" $gw/api/v1/templates         # template-service — [] on a fresh library
+curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $tok" -X POST $gw/api/v1/imports/p6/preview -F file=@…/meridian-t4.xml
+#   403 with a PM-only account: the endpoint wants PLANNER or ADMIN. The service is reached and authorizing.
+```
+
+A service at `minReplicas: 0` takes 40–60 s to answer its first request; the gateway's response
+timeout is 30 s, so **the first call to a cold service is a 504 and the second succeeds**. Either
+raise `minReplicas` to 1 for the services a planner uses interactively, or accept one cold 504 a day.
 
 ### 1.7 Retire what the templates replaced
 
