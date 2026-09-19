@@ -26,21 +26,21 @@ az account show -o table
 az resource list -g rg-milestone-command-dev -o table
 ```
 
-Created by hand before the templates existed (Sprints 2–10) and **adopted** by them under the same
-names: `log-milestone-command-dev`, `appi-milestone-command-dev`, `stapp-mc-{shell,dashboards,templates}-dev`,
-one Container Apps environment (France Central) holding `ca-api-gateway`.
-
-**The one name to find before §1:** the Container Apps environment. Its default domain is in every
-front end (`wittysmoke-6cd637b5.francecentral.azurecontainerapps.io`); its *name* was never written
-down.
+**Inventoried 2026-09-19** (the README's "What exists in Azure" table is that inventory). The short
+version: the environment is `cae-milestone-command-dev` — the template's default, so
+`MC_CONTAINER_ENV_NAME` need not be set — and it already holds `ca-api-gateway`,
+`ca-milestone-service` (on the `dev` profile, connecting as the administrator), `ca-discovery-server`
+and a `caj-migrate` job, in front of `psql-milestone-command-dev` with one database. All of it is
+**adopted** by the templates under its existing name; nothing is recreated.
 
 ```powershell
 az containerapp env list -g rg-milestone-command-dev --query "[].{name:name, domain:properties.defaultDomain}" -o table
-$env:MC_CONTAINER_ENV_NAME = "<that name>"
 ```
 
-Leave it unset and `platform.bicep` creates `cae-milestone-command-dev` beside the old one, the
-gateway moves, and its FQDN changes — every `api-config.ts` would need editing and redeploying.
+⚠️ Three consequences for §1, each handled where it lands: the Postgres administrator password
+already exists (1.3 stores *that* one, it does not mint one); `milestone_db`'s tables are owned by
+`mcadmin` (the bootstrap job hands them to `milestone_svc`); and rolling `ca-milestone-service`
+from `dev` to `azure` profile ends its use of Eureka, after which `ca-discovery-server` can go (1.7).
 
 ---
 
@@ -73,11 +73,23 @@ Creates `id-mc-apps-dev` (the identity every app runs as), `acrmilestonecommandd
 need Owner or *User Access Administrator* on the group — you have it as subscription owner; the
 GitHub identity does not (see `infra.yml`), which is why a person runs this stage.
 
-### 1.3 The passwords — generated into the vault, never seen
+### 1.3 The passwords — into the vault, never seen
+
+The administrator password **already exists**: `psql-milestone-command-dev` was created by hand and
+`ca-milestone-service` holds it as the container-app secret `dbpw`. `platform.bicep` sets
+`administratorLoginPassword` from the vault on every deploy, so the vault must hold the *current*
+value or the first deploy rotates it under the running app. Copy it across without printing it:
 
 ```powershell
 $kv = "kv-mc-milestone-dev"
-foreach ($s in 'pg-admin-password','pg-milestone-svc-password','pg-identity-svc-password','pg-template-svc-password') {
+az keyvault secret set --vault-name $kv --name pg-admin-password -o none `
+  --value (az containerapp secret show -n ca-milestone-service -g rg-milestone-command-dev --secret-name dbpw --query value -o tsv)
+```
+
+The three service logins do not exist yet; those are minted:
+
+```powershell
+foreach ($s in 'pg-milestone-svc-password','pg-identity-svc-password','pg-template-svc-password') {
   $bytes = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
   $value = [Convert]::ToBase64String($bytes) -replace '[^A-Za-z0-9]', 'x'
   az keyvault secret set --vault-name $kv --name $s --value $value -o none
@@ -86,7 +98,7 @@ foreach ($s in 'pg-admin-password','pg-milestone-svc-password','pg-identity-svc-
 az keyvault secret list --vault-name $kv --query "[].name" -o tsv
 ```
 
-Four names, no values on screen. `evidence-connection-string` is the fifth; Bicep writes it in 1.4
+Four names, no values on screen. `evidence-connection-string` is the fifth; Bicep writes it in 1.5
 because it created the storage account.
 
 RBAC on a new vault takes a minute to propagate; a `Forbidden` on the first `secret set` is that, not
@@ -137,11 +149,20 @@ az deployment group what-if -g rg-milestone-command-dev -f bicep/platform.bicep 
 az deployment group create  -g rg-milestone-command-dev -f bicep/platform.bicep -p bicep/platform.dev.bicepparam
 ```
 
-Read the what-if. Expected: **Create** for Postgres (+3 databases, firewall rule), storage, the
-Field static web app, four container apps, four jobs, six alerts; **Modify** for `ca-api-gateway`
-(it gains the identity, the ACR registry and the probes) and the three existing static web apps
-(no-op or tags); **NoChange** for the environment if 0. named it correctly. A **Delete** anywhere is
-a stop.
+Read the what-if. Expected, given the 2026-09-19 inventory: **Create** for the vault-side pieces
+(storage, `identity_db`, `template_db`, `ca-identity-service`, `ca-template-service`,
+`ca-integration-service`, the four jobs, `stapp-mc-field-dev`, six alerts); **Modify** for
+`psql-milestone-command-dev` (a firewall rule named ours beside theirs; nothing on the server
+itself if 1.3 was done), `ca-api-gateway` (identity type system → user-assigned, probes, the four
+service URIs and `CORS_ALLOWED_ORIGINS` it now has by hand), **`ca-milestone-service`** (profile
+`dev` → `azure`, `DB_USER` `mcadmin` → `milestone_svc`, the vault secret in place of `dbpw`, 1 vCPU →
+0.5, and `EUREKA_URI` gone — this is the one to read line by line), the workspace (a 1 GB/day cap)
+and the three static sites (no-op). **NoChange** for the environment and the registry. A **Delete**
+anywhere is a stop.
+
+⚠️ `ca-milestone-service` comes up on the new login only after 1.6's bootstrap job has created it —
+so between this deploy and 1.6 the app restarts on a failed connection. Run 1.6 straight after; it
+takes a minute.
 
 Postgres takes ~10 minutes. The gateway and integration-service come up; the three database
 services come up *failing* — their databases have no roles and no schema yet (1.6). That is the
@@ -165,7 +186,21 @@ az containerapp list -g $rg --query "[].{app:name, running:properties.runningSta
 
 CI does 1.6's migrate step on every later push; the bootstrap job runs once, and again only for §4.
 
-### 1.7 Prove it
+### 1.7 Retire what the templates replaced
+
+Once `ca-milestone-service` runs the `azure` profile (1.5) nothing registers with Eureka, and once
+`job-migrate-milestone` has run (1.6) the old job has no caller:
+
+```powershell
+az containerapp delete -n ca-discovery-server -g $rg --yes
+az containerapp job delete -n caj-migrate -g $rg --yes
+az identity delete -n id-milestone-pull -g $rg          # AcrPull, attached to nothing
+```
+
+Not before: a `dev`-profile milestone-service with no registry to reach logs a retry every thirty
+seconds and keeps serving, but the noise hides real errors.
+
+### 1.8 Prove it
 
 ```powershell
 $gw = az deployment group show -g $rg -n platform --query properties.outputs.gatewayUrl.value -o tsv
@@ -177,7 +212,7 @@ Then the real test: open <https://yellow-sand-06533ac0f.7.azurestaticapps.net>, 
 exec dashboard loads from the API. If the gateway's FQDN changed (0. was skipped), the apps call the
 old one and fail with a network error — fix `api-config.ts` in the three web repos and `mc-field`.
 
-### 1.8 Field's static web app
+### 1.9 Field's static web app
 
 `platform.bicep` created `stapp-mc-field-dev`. Its deployment token is the last H4 item
 `angular-app.yml` waits on:
@@ -189,7 +224,7 @@ az staticwebapp show -n stapp-mc-field-dev -g $rg --query defaultHostname -o tsv
 
 Put that hostname in `platform-apps.ts` (`field: null` today) in shell, dashboards and templates.
 
-### 1.9 Budget
+### 1.10 Budget
 
 ```powershell
 az deployment sub create -l francecentral -f bicep/budget.bicep -p env=dev opsEmail=rachidouahmanetdi@gmail.com startDate=(Get-Date -Format yyyy-MM-01)

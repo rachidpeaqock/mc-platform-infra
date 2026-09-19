@@ -2402,7 +2402,7 @@ testing pass, and whatever it finds becomes bug tickets then. Until that pass, t
 | H1 | **Install the APK on a real phone** | Camera, GPS and the privacy cover have only ever run against browser fallbacks. Native-only defects have been accumulating since Sprint 3 by deliberate choice |
 | H2 | **Dev-seed `oid` swap** | One `UPDATE`, needs a real Entra object id. Until it runs, a real Field sign-in correctly sees an empty list |
 | H3 | **Design-system release** | The `attribution()` fix is committed and unpublished, so Field-sourced feed rows still read "Field" rather than the person's name |
-| H4 | **Anything needing Azure** | Since Sprint 23 this is `docs/runbook.md` §1 (first deployment, in order), §5 (the restore drill), the `ACR_NAME` / `CONTAINER_APPS_RG` variables on the five service repos, the Field static-site token, then the load test. The subscription exists; the templates have not been applied to it |
+| H4 | **Anything needing Azure** | Since Sprint 23 this is `docs/runbook.md` §1 (first deployment, in order), §5 (the restore drill), `CONTAINER_APPS_RG` on the four remaining service repos, the Field static-site token, then the load test. The gateway is rolled and self-deploying since 2026-09-19; the templates have not been applied |
 
 ⚠️ **H1 is the one with real risk attached.** Everything native is written against Capacitor's
 web fallbacks; the first device run will find more than it would have if devices had been in the
@@ -2425,7 +2425,7 @@ dependency wired, all of it or none of it.
 | | |
 |---|---|
 | `mc-milestone-service` | **244 tests**, twelve against Azurite over the real Blob API. Contract **2.11.0** |
-| `mc-api-gateway` | **55 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy (incl. the native webview origins and the exact cloud list), rate limiting, timeouts, fallback |
+| `mc-api-gateway` | **56 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy (incl. the native webview origins, the exact cloud list and the unconfigured fallback), rate limiting, timeouts, fallback. **Deployed by its own pipeline since 2026-09-19** |
 | `mc-identity-service` | **19 tests** — JIT provisioning, batch resolve, the directory, boundaries, contract. Pinned at **1.1.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
 | `mc-integration-service` | **46 tests** — every P6 mapping rule against a hand-computed fixture, the XML twin of that fixture previewing identically, both encodings, every refusal (XXE included), project choice, the multipart endpoint, roles, preview-only, tenant guard, contract. Pinned at **1.2.0**. No database |
@@ -2678,9 +2678,38 @@ new `java-service.yml`: 244 tests green, and — because `ACR_NAME` has been set
 `registry.bicep` computes. The deploy step skipped, correctly: `CONTAINER_APPS_RG` is unset. So the
 migration-image path is proven; the migrate-then-deploy path waits for the container apps.
 
-**Left in Sprint 23, all H4:** run §1 · perform the restore drill and write the date in §5's table ·
-`ACR_NAME` + Azure ids on identity/template/integration, `CONTAINER_APPS_RG` on all five, and watch
-one push deploy · the Field token.
+### Sprint 23 · 2026-09-19 — first contact with the estate
+
+The personal CLI signed in (the tenant now insists on MFA, so the cached token had been refused as
+"blocked by security defaults"; a fresh browser login satisfies it), and `az resource list` said
+what nobody had written down: **the platform has been running behind the gateway since
+2026-08-24** — `ca-milestone-service` on the `dev` profile against `psql-milestone-command-dev`,
+`ca-discovery-server`, a `caj-migrate` job, and the environment under exactly the name
+`platform.bicep` defaults to. The README's inventory table is the record; the templates adopt all
+of it under its existing names.
+
+**F2 closed.** `ca-api-gateway` rolled by hand to `main` — revision 4, healthy — and the live
+preflight now offers `PUT`: deployed Templates can save. Then `CONTAINER_APPS_RG` went on the
+gateway's repo and the very next push (below) **deployed itself through `java-service.yml`**:
+"Rolling ca-api-gateway to …", revision 6, healthy, 100 % — the migrate-then-deploy path proven on
+the one app that existed.
+
+**A regression, ten minutes long.** The rolled gateway answered `403` to `capacitor://localhost`
+again: the `azure` profile's exact-origin override replaces the *whole* default list when
+`CORS_ALLOWED_ORIGINS` is unset, native origins included — the hand-built app had no such
+variable, and F4's fix had silently undone F1's. Fixed twice: the live app carries the exact list
+Bicep would set (three sites + two native origins, verified against each origin class), and the
+fallback now names the native origins too, with `AzureProfileFallbackCorsTest` holding the
+unconfigured state. Gateway at **56 tests**.
+
+**What the inventory changed in the plan.** Nothing needs creating that the templates do not
+already declare; three things needed saying: the admin password already exists (runbook §1.3
+copies it into the vault rather than minting one), `milestone_db` is owned by `mcadmin` (the
+bootstrap job now `REASSIGN OWNED`s it to `milestone_svc`), and the gateway routes by internal
+FQDN, which is the form Bicep now writes because it is the form known to work.
+
+**Left in Sprint 23, all H4:** run §1 · the restore drill · `CONTAINER_APPS_RG` on the other four
+service repos · the Field token.
 
 ### Sprint 24 · opened 2026-09-18 — the number the risk register named
 

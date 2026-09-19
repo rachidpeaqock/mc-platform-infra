@@ -119,6 +119,9 @@ module storage 'modules/storage.bicep' = {
 // and the connection is refused with a message that does not say why.
 func jdbc(host string, db string) string => 'jdbc:postgresql://${host}:5432/${db}?sslmode=require'
 
+// An app's address inside the environment, through its internal ingress.
+func internalUrlIn(app string, envDomain string) string => 'https://${app}.internal.${envDomain}'
+
 // ---- compute ----------------------------------------------------------
 
 module containerEnv 'modules/container-env.bicep' = {
@@ -130,6 +133,8 @@ module containerEnv 'modules/container-env.bicep' = {
     workspaceId: workspace.id
   }
 }
+
+var envDomain = containerEnv.outputs.defaultDomain
 
 // Connection arithmetic, because B1ms allows 50 connections in total:
 //   milestone  2 replicas × 6  = 12
@@ -185,11 +190,15 @@ module gateway 'modules/container-app.bicep' = {
     // The front door must answer; a cold JVM is a 30-second outage.
     minReplicas: 1
     maxReplicas: isProd ? 4 : 2
+    // The internal-ingress FQDN form, https://<app>.internal.<env domain>:
+    // it is what the hand-built gateway has routed with since 2026-08-24,
+    // so it is the form known to work. The bare app name would resolve
+    // too, but "would" is not "does".
     envVars: concat(commonEnv, [
-      { name: 'MILESTONE_SERVICE_URI', value: 'http://ca-milestone-service' }
-      { name: 'IDENTITY_SERVICE_URI', value: 'http://ca-identity-service' }
-      { name: 'TEMPLATE_SERVICE_URI', value: 'http://ca-template-service' }
-      { name: 'INTEGRATION_SERVICE_URI', value: 'http://ca-integration-service' }
+      { name: 'MILESTONE_SERVICE_URI', value: internalUrlIn('ca-milestone-service', envDomain) }
+      { name: 'IDENTITY_SERVICE_URI', value: internalUrlIn('ca-identity-service', envDomain) }
+      { name: 'TEMPLATE_SERVICE_URI', value: internalUrlIn('ca-template-service', envDomain) }
+      { name: 'INTEGRATION_SERVICE_URI', value: internalUrlIn('ca-integration-service', envDomain) }
       { name: 'CORS_ALLOWED_ORIGINS', value: corsAllowedOrigins }
     ])
   }
@@ -337,7 +346,16 @@ SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'r', :'p')
 \gexec
 GRANT ALL PRIVILEGES ON DATABASE $db TO $role;
 EOSQL
+  # The hand-built milestone-service migrated as the administrator, so
+  # milestone_db's tables (flyway_schema_history included) are owned by
+  # mcadmin, and a Flyway run as milestone_svc would fail on the first
+  # ALTER. Hand what the administrator owns in this database to the
+  # service's login: GRANT the role to ourselves so REASSIGN is allowed,
+  # reassign, and the database itself with it. A no-op on a fresh one.
   psql -v ON_ERROR_STOP=1 -d "$db" \
+    -c "GRANT $role TO CURRENT_USER" \
+    -c "REASSIGN OWNED BY CURRENT_USER TO $role" \
+    -c "ALTER DATABASE $db OWNER TO $role" \
     -c "REVOKE ALL ON SCHEMA public FROM PUBLIC" \
     -c "GRANT ALL ON SCHEMA public TO $role"
   echo "ok $role -> $db"

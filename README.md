@@ -118,16 +118,28 @@ What CI does once the estate exists: `java-service.yml` pushes each service imag
 
 Subscription: **Free Trial with the spending limit ON** — Azure disables the subscription rather than billing when the credit runs out, so nothing here can produce a surprise invoice. Everything below is free or inside a free allowance.
 
-| Resource | Name | Region |
+Inventoried on 2026-09-19 with `az resource list` (runbook §0) — the first time anyone had looked
+since the group was built by hand on 2026-08-24, and more was there than any document said:
+
+| Resource | Name | Notes |
 |---|---|---|
 | Resource group | `rg-milestone-command-dev` | westeurope |
-| Log Analytics | `log-milestone-command-dev` | francecentral |
-| Application Insights | `appi-milestone-command-dev` | francecentral |
-| Static Web App ×3 | `stapp-mc-{shell,dashboards,templates}-dev` | eastus2 |
-| Container Apps environment + `ca-api-gateway` | name not recorded — runbook §0 finds it | francecentral |
-| Container Registry | `acrmilestonecommanddev` — the name `registry.bicep` computes, so `foundation.bicep` adopts it. Holds `mc-api-gateway`, `mc-milestone-service`, `mc-discovery-server` (pushed by CI since 2026-08-24) and, since Sprint 23, `mc-milestone-service-migrate` | — |
+| Log Analytics · App Insights | `log-milestone-command-dev` · `appi-milestone-command-dev` | francecentral; 30-day retention, no daily cap |
+| Static Web App ×3 | `stapp-mc-{shell,dashboards,templates}-dev` | eastus2, Free |
+| Container Registry | `acrmilestonecommanddev` | the name `registry.bicep` computes — adopted, not created |
+| Container Apps environment | **`cae-milestone-command-dev`** | francecentral, domain `wittysmoke-6cd637b5` — the name `platform.bicep` defaults to, so no parameter needed |
+| `ca-api-gateway` | external ingress, `azure` profile, routes to the internal FQDNs | **rolled 2026-09-19** to `main` by hand (F2), then by CI for the next push — the pipeline's deploy path is proven |
+| `ca-milestone-service` | internal ingress, **`dev` profile**, connects as `mcadmin`, 1 vCPU / 2 GiB | image from 2026-08 — behind `main` by four contracts; rolls when `CONTAINER_APPS_RG` is set on its repo |
+| `ca-discovery-server` | internal, `dev` profile | Eureka. Only the `dev`-profile milestone-service still registers with it; retire when that app is rolled (runbook §1.7) |
+| `caj-migrate` | manual job, the service image with `SPRING_FLYWAY_ENABLED=true` and no web server | how the schema got there; superseded by `job-migrate-milestone` |
+| PostgreSQL Flexible Server | `psql-milestone-command-dev` | B1ms, PG 17, 32 GB, 7-day PITR, password auth, one database `milestone_db`, no per-service logins yet |
+| Managed identity | `id-milestone-pull` | AcrPull; attached to nothing — the apps pull with system identities |
+| GitHub deploy identity | Contributor on the group | enough for images and rolls; not for role assignments (runbook §1.2) |
 
-The three apps are **live**, and so is the gateway (`https://ca-api-gateway.wittysmoke-6cd637b5.francecentral.azurecontainerapps.io/actuator/health` → UP; `/api/**` → 401 without a token). Whether anything runs behind it cannot be told from outside — security runs before routing, so every `/api/**` call is a 401 either way — and nothing in the repos says a service was ever deployed there. Runbook §0 lists what is actually in the group; `platform.bicep` declares what should be.
+Not there: Key Vault, evidence storage, identity/template/integration apps, the Field static site,
+alerts, a budget. That is the delta `foundation.bicep` + `platform.bicep` create.
+
+The three apps are **live**, and so is the platform behind them: gateway → milestone-service → Postgres, running since 2026-08-24. The gateway is current with `main`; milestone-service is not yet.
 
 | App | URL |
 |---|---|
