@@ -442,6 +442,23 @@ All alerts email `ag-mc-dev-ops`. Each says what it is; this is what to do first
 
 ---
 
+### 6.1 Is the live channel late?
+
+Measure it from the database, not from a laptop: on 2026-09-19 the development machine's clock
+was **+58 s** against Azure, and frames stamped with the server's `at` looked a minute late when
+they had arrived in one second. The truth is one query, run as a one-off job (the shape of
+`job-bootstrap-db`, `postgres:17-alpine`, admin password by vault reference):
+
+```sql
+select id, kind, created_at, sent_at, sent_at - created_at as delay from outbox order by id desc limit 20;
+select name, lock_until, locked_at, timezone('utc', now()) as db_now from shedlock;   -- outbox-relay should cycle every ~1 s
+```
+
+`delay` of a few seconds is the relay's tick. A row with `sent_at` null for minutes means the
+relay is not sending: `ops-logs.yml` on `ca-milestone-service` for `Relay paused` (Web PubSub
+refused) or nothing at all (no `REALTIME_ENDPOINT` — the module is off and the row will wait
+forever; prune or set the endpoint).
+
 ## 7. Reading the logs
 
 Console output of every container goes to `log-milestone-command-dev`. The gateway logs a line per
