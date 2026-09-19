@@ -122,6 +122,18 @@ func jdbc(host string, db string) string => 'jdbc:postgresql://${host}:5432/${db
 // An app's address inside the environment, through its internal ingress.
 func internalUrlIn(app string, envDomain string) string => 'https://${app}.internal.${envDomain}'
 
+// ---- live sync (Sprint 14, second half) ----------------------------------
+
+module webpubsub 'modules/webpubsub.bicep' = {
+  name: 'webpubsub'
+  params: {
+    env: env
+    location: location
+    publisherPrincipalId: identity.properties.principalId
+    actionGroupId: actionGroup.id
+  }
+}
+
 // ---- compute ----------------------------------------------------------
 
 module containerEnv 'modules/container-env.bicep' = {
@@ -222,6 +234,12 @@ module milestone 'modules/container-app.bicep' = {
       { name: 'DB_USER', value: 'milestone_svc' }
       { name: 'DB_POOL_MAX', value: '6' }
       { name: 'EVIDENCE_CONTAINER', value: storage.outputs.containerName }
+      // Live sync. The relay and the token endpoint authenticate to Web
+      // PubSub with the app's own identity; the client id tells the Azure
+      // SDK which of the environment's identities to use.
+      { name: 'REALTIME_ENDPOINT', value: webpubsub.outputs.endpoint }
+      { name: 'REALTIME_HUB', value: webpubsub.outputs.hub }
+      { name: 'AZURE_CLIENT_ID', value: identity.properties.clientId }
     ])
     secrets: [
       { name: 'db-password', envName: 'DB_PASSWORD', keyVaultUrl: '${secretUrl}pg-milestone-svc-password' }
@@ -429,6 +447,7 @@ module alerts 'modules/alerts.bicep' = {
 output gatewayUrl string = 'https://${gateway.outputs.fqdn}'
 output containerEnvDefaultDomain string = containerEnv.outputs.defaultDomain
 output postgresFqdn string = postgres.outputs.fqdn
+output realtimeEndpoint string = webpubsub.outputs.endpoint
 output evidenceAccount string = storage.outputs.accountName
 output staticWebApps array = [for (app, i) in webApps: {
   app: app

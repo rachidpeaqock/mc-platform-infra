@@ -30,7 +30,9 @@ param postgresAdminPassword = az.getSecret(
   'pg-admin-password'
 )
 
-// Optional: administer Postgres as yourself, without the password.
-//   az ad signed-in-user show --query "{id:id, upn:userPrincipalName}" -o tsv
-param postgresEntraAdminObjectId = readEnvironmentVariable('MC_DEPLOYER_OBJECT_ID', '')
-param postgresEntraAdminLogin = readEnvironmentVariable('MC_DEPLOYER_UPN', '')
+// One-time: administer Postgres as yourself, without the password. Set
+// MC_PG_ENTRA_ADMIN_OBJECT_ID / _UPN on the deploy that ADDS you, then never
+// again — re-declaring an existing administrator fails (42710). Done for
+// the owner on 2026-09-19.
+param postgresEntraAdminObjectId = readEnvironmentVariable('MC_PG_ENTRA_ADMIN_OBJECT_ID', '')
+param postgresEntraAdminLogin = readEnvironmentVariable('MC_PG_ENTRA_ADMIN_UPN', '')

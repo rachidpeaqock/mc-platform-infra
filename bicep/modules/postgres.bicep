@@ -24,7 +24,7 @@ param adminLogin string = 'mcadmin'
 @description('Administrator password. Generated once by the runbook, held in Key Vault as pg-admin-password, passed in by the bicepparam via getSecret()')
 param adminPassword string
 
-@description('Object id of the Entra user who may administer the server without the password. Empty skips it.')
+@description('Object id of the Entra user to ADD as administrator. One-time: pass it on the deploy that creates the administrator, then leave it empty — re-declaring an existing one fails (42710).')
 param entraAdminObjectId string = ''
 
 @description('Sign-in name (UPN) of that user, shown as the role name in Postgres')
@@ -69,8 +69,13 @@ resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
       // Password auth stays on: the services connect with JDBC and a
       // password from Key Vault. Entra auth is for people.
       passwordAuth: 'Enabled'
-      activeDirectoryAuth: empty(entraAdminObjectId) ? 'Disabled' : 'Enabled'
-      tenantId: empty(entraAdminObjectId) ? null : tenant().tenantId
+      // Always on. The administrator below is created once (opt-in): Azure
+      // stores the role under a 63-character truncation of the UPN and
+      // refuses to create it a second time (42710) — found 2026-09-19 —
+      // so routine deploys leave the administrator alone and must not
+      // switch Entra auth off underneath them.
+      activeDirectoryAuth: 'Enabled'
+      tenantId: tenant().tenantId
     }
     network: {
       // Public endpoint with a firewall, not a VNet: Container Apps on the
