@@ -1,0 +1,94 @@
+name: Ops · logs
+
+# Read the estate's logs from somewhere that can reach them.
+#
+# The development machine sits behind a proxy that intercepts TLS: ARM
+# works, but every data plane — Key Vault, the registry, the Log Analytics
+# query endpoint, the container-apps log stream — fails certificate
+# verification. A GitHub runner has none of that, and the deploy identity
+# already has Contributor on the group. So this is `az containerapp logs`
+# and a Log Analytics query, run there, printed here. Read-only.
+#
+#   gh workflow run ops-logs.yml -f target=job-bootstrap-db -f kind=job
+#   gh run view --log <id> | sed -n '/::group::/,/::endgroup::/p'
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Container app or job name (e.g. ca-milestone-service, job-bootstrap-db)
+        required: true
+        type: string
+      kind:
+        description: app or job
+        required: true
+        type: choice
+        default: app
+        options: [app, job]
+      minutes:
+        description: How far back to read
+        required: false
+        type: string
+        default: '60'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    env:
+      RG: rg-milestone-command-dev
+      WORKSPACE: log-milestone-command-dev
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Executions and revisions
+        env:
+          TARGET: ${{ inputs.target }}
+          KIND: ${{ inputs.kind }}
+        run: |
+          set -uo pipefail
+          az extension add -n containerapp --upgrade -y >/dev/null 2>&1 || true
+          echo "::group::state"
+          if [ "$KIND" = job ]; then
+            az containerapp job execution list -n "$TARGET" -g "$RG" --query "[].{name:name, status:properties.status, start:properties.startTime, end:properties.endTime}" -o table
+          else
+            az containerapp revision list -n "$TARGET" -g "$RG" --query "[].{rev:name, active:properties.active, health:properties.healthState, running:properties.runningState, traffic:properties.trafficWeight, replicas:properties.replicas}" -o table
+            REV=$(az containerapp show -n "$TARGET" -g "$RG" --query properties.latestRevisionName -o tsv)
+            az containerapp replica list -n "$TARGET" -g "$RG" --revision "$REV" --query "[].{replica:name, containers:properties.containers[].{ready:ready, restarts:restartCount, state:runningState, detail:runningStateDetails}}" -o json
+          fi
+          echo "::endgroup::"
+
+      - name: Log Analytics — system and console
+        env:
+          TARGET: ${{ inputs.target }}
+          KIND: ${{ inputs.kind }}
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          set -uo pipefail
+          WS=$(az monitor log-analytics workspace show -g "$RG" -n "$WORKSPACE" --query customerId -o tsv)
+          if [ "$KIND" = job ]; then COL_SYS="JobName_s"; COL_CON="ContainerJobName_s"; else COL_SYS="ContainerAppName_s"; COL_CON="ContainerAppName_s"; fi
+          echo "::group::system events (${MINUTES}m)"
+          az monitor log-analytics query -w "$WS" --analytics-query "ContainerAppSystemLogs_CL | where TimeGenerated > ago(${MINUTES}m) | where ${COL_SYS} == '${TARGET}' | project TimeGenerated, Reason_s, Log_s | order by TimeGenerated asc" -o tsv | cut -c1-400 || true
+          echo "::endgroup::"
+          echo "::group::console (${MINUTES}m, last 200 lines)"
+          az monitor log-analytics query -w "$WS" --analytics-query "ContainerAppConsoleLogs_CL | where TimeGenerated > ago(${MINUTES}m) | where ${COL_CON} == '${TARGET}' | project TimeGenerated, Log_s | order by TimeGenerated asc | take 200" -o tsv | cut -c1-400 || true
+          echo "::endgroup::"
+
+      - name: Live stream (apps only — a running replica's last lines)
+        if: inputs.kind == 'app'
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          echo "::group::live console"
+          az containerapp logs show -n "$TARGET" -g "$RG" --type console --tail 80 --format text 2>/dev/null | cut -c1-400 || true
+          echo "::endgroup::"
+          echo "::group::live system"
+          az containerapp logs show -n "$TARGET" -g "$RG" --type system --tail 40 --format text 2>/dev/null | cut -c1-400 || true
+          echo "::endgroup::"

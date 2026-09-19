@@ -51,6 +51,11 @@ resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     // RBAC, not access policies: the same role model as everything else
     // in the group, and no second permission system to audit.
     enableRbacAuthorization: true
+    // platform.dev.bicepparam reads pg-admin-password with getSecret(),
+    // which is ARM itself fetching the secret at submission time; without
+    // this flag the vault refuses ARM with "Access denied to first party
+    // service", which the first run of runbook §1 found.
+    enabledForTemplateDeployment: true
     // A deleted vault with the database passwords in it must be
     // recoverable for the time it takes to notice.
     enableSoftDelete: true
