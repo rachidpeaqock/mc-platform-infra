@@ -265,7 +265,11 @@ module template 'modules/container-app.bicep' = {
     registryServer: acr
     image: '${acr}/mc-template-service:${imageTag}'
     port: 8084
-    minReplicas: 0
+    // Found in the first walkthrough (2026-09-19): a planner's save waited
+    // out a 40 s JVM cold start and the gateway answered 504 at 30. The
+    // two services a planner uses interactively keep one replica warm;
+    // ~€10/month each is cheaper than the first impression.
+    minReplicas: 1
     maxReplicas: 2
     envVars: concat(commonEnv, [
       { name: 'DB_URL', value: jdbc(postgres.outputs.fqdn, 'template_db') }
@@ -288,8 +292,9 @@ module integration 'modules/container-app.bicep' = {
     registryServer: acr
     image: '${acr}/mc-integration-service:${imageTag}'
     port: 8085
-    // No database, no state: parses a file and answers. Scale to zero.
-    minReplicas: 0
+    // No database, no state — but a planner is waiting on the other side
+    // of the upload, so one replica stays warm (see template-service).
+    minReplicas: 1
     maxReplicas: 2
     envVars: commonEnv
   }
