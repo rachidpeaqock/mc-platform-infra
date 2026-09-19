@@ -177,7 +177,10 @@ jobs:
   image:
     name: Publish image
     needs: build
-    if: inputs.publish_image && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # A manual run of main publishes too: the day the estate learned to pull
+    # from ACR, three images had to exist before their container apps could,
+    # and nothing about the code had changed.
+    if: inputs.publish_image && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: read

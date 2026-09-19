@@ -41,7 +41,8 @@ resource insights 'Microsoft.Insights/components@2020-02-02' = {
     Application_Type: 'web'
     WorkspaceResourceId: workspace.id
     IngestionMode: 'LogAnalytics'
-    RetentionInDays: retentionDays > 90 ? 90 : retentionDays
+    // 90 days is the free allowance and what the hand-made component has; never shorten it.
+    RetentionInDays: 90
   }
 }
 

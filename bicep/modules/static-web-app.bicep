@@ -24,6 +24,10 @@ param location string
 @allowed(['Free', 'Standard'])
 param sku string = 'Free'
 
+@description('The GitHub repository the site was created from. The hand-made sites carry it; omitting it here would read as detaching them in a what-if, so it is stated.')
+param repositoryUrl string = 'https://github.com/rachidpeaqock/mc-${app}'
+param branch string = 'main'
+
 resource site 'Microsoft.Web/staticSites@2023-12-01' = {
   name: 'stapp-mc-${app}-${env}'
   location: location
@@ -32,8 +36,12 @@ resource site 'Microsoft.Web/staticSites@2023-12-01' = {
     tier: sku
   }
   properties: {
-    // The pipeline builds and uploads; Azure never sees the repo. That is
-    // what lets angular-app.yml verify the bundle before it deploys it.
+    provider: 'GitHub'
+    repositoryUrl: repositoryUrl
+    branch: branch
+    // The pipeline builds and uploads with the deployment token; Azure
+    // never builds the repo. That is what lets angular-app.yml verify the
+    // bundle before it deploys it.
     buildProperties: {
       skipGithubActionWorkflowGeneration: true
     }
