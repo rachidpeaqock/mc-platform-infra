@@ -2424,14 +2424,14 @@ dependency wired, all of it or none of it.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **244 tests**, twelve against Azurite over the real Blob API. Contract **2.11.0** |
+| `mc-milestone-service` | **247 tests**, twelve against Azurite over the real Blob API. Contract **2.12.0**. Self-deploying (migrate, then roll) since 2026-09-19 |
 | `mc-api-gateway` | **56 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy (incl. the native webview origins, the exact cloud list and the unconfigured fallback), rate limiting, timeouts, fallback. **Deployed by its own pipeline since 2026-09-19** |
 | `mc-identity-service` | **19 tests** — JIT provisioning, batch resolve, the directory, boundaries, contract. Pinned at **1.1.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
 | `mc-integration-service` | **46 tests** — every P6 mapping rule against a hand-computed fixture, the XML twin of that fixture previewing identically, both encodings, every refusal (XXE included), project choice, the multipart endpoint, roles, preview-only, tenant guard, contract. Pinned at **1.2.0**. No database |
-| `mc-dashboards` | **98 browser assertions**, in CI — nine of them against a 5,000-milestone project |
-| `mc-field` | **84 browser assertions**, in CI, plus an installable Android APK |
-| `mc-templates` | **74 browser assertions**, in CI |
+| `mc-dashboards` | **99 browser assertions**, in CI — nine of them against a 5,000-milestone project |
+| `mc-field` | **85 browser assertions**, in CI, plus an installable Android APK; web build live |
+| `mc-templates` | **78 browser assertions**, in CI |
 
 **No client on this platform holds domain data any more — and this time it is true.** The
 2026-09-13 version of this sentence overlooked `mc-templates`, which still carried four
@@ -2744,8 +2744,38 @@ can connect until one is added (runbook §5 step 3 now does). Verified from insi
 with a one-off job: 32 milestones, 25 audit rows, Flyway history at the restore point, owner
 `milestone_svc`. Drill server deleted. §5's table has its first row.
 
-**Sprint 23 is closed** except one deferred item: the Postgres Entra administrator (a second
-`platform` deploy with `MC_DEPLOYER_OBJECT_ID` set, now that the server can have Entra auth on).
+**Sprint 23 is closed.** The Postgres Entra administrator followed in a second `platform` deploy
+the same afternoon.
+
+### 2026-09-19, late afternoon — the first human walkthrough
+
+The owner drove the live estate for the first time, with the PLANNER role assigned, while the
+logs were read through `ops-logs.yml`. Eight findings in ninety minutes, seven fixed and deployed
+the same afternoon, one correct by design. This is the list the plan had been waiting for since
+Sprint 3.
+
+| # | Seen | Was | Now |
+|---|---|---|---|
+| 1 | Dashboards avatar reads **PS** | the prototype's literal | identity's `/me` → **RO**, full name on hover; `/me` kept out of the name cache so an identity outage still leaves *every* row unattributed |
+| 2 | P6 import: *Unexpected error … 504* | a 40 s JVM cold start behind a 30 s gateway timeout | template- and integration-service keep one replica warm (live + Bicep); a 503/504 now reads "the service is not answering yet" |
+| 3 | Create → **409** | the project *had* been created on the first click; the second was refused as a duplicate code | correct — `code.duplicate`, shown beside the code field |
+| 4 | *Open Dashboards* → **404** | the right host and path, but Static Web Apps had no route fallback on the three web apps (Field had one) | `staticwebapp.config.json` on all three; deep links 200 |
+| 5 | "did it save the template from the imported file?" | the P6 gap left undone because offsets need a calendar the file lacks — but the created project *has* one | **milestone-service 2.12.0** `GET /projects/{id}/template-rows` (`biz_days` run backwards; a project born from offsets 0/1/5/10 returns 0/1/5/10) + an *also save as a template* checkbox on the sheet (78 assertions). The service's first self-deploy: migration job, then roll |
+| 6 | Field sign-in: **AADSTS50011** | a new static site is a new Entra redirect URI | added as SPA to the Web registration; runbook §1.9 says so, and that replication can lag a few minutes (`9002326` in the window) |
+| 7 | Field avatar reads **MC** | same constant as #1 | `/me` → initials (85 assertions) |
+| 8 | Field: empty list | correct until H2 | **H2 done**: the fixture owner's ten Meridian milestones swapped to the owner's object id, by a one-off job — `owner=me` returns 10 |
+
+Also observed and left alone, deliberately: the exec view has no project picker until a second
+project exists (it appeared after #5); the 11:05 sweeper error in the logs was the window
+between the failed and the successful bootstrap, and the 12:05, 13:05 and 14:05 sweeps were clean.
+
+**What the day proved that no test could:** a planner can sign in, import a P6 export, choose a
+project out of it, create it, save it back as a template, open it in Dashboards, change a real date
+with a reason, and see the change attributed to them by name — against Postgres in France Central,
+through a gateway that self-deploys, with every password in a vault nobody has read.
+
+**Left from the walkthrough:** the Field write path (one update from the phone view) · H1, the APK
+on a device · H3, the design-system release · a real client's export.
 
 ### Sprint 24 · opened 2026-09-18 — the number the risk register named
 
