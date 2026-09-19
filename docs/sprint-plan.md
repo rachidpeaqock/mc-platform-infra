@@ -1539,7 +1539,7 @@ gap is the standing risk in Epic E4, and it is not closed by this sprint.
 | Sprint | Focus | Key stories |
 |---|---|---|
 | **13** | Event feed | `activity-service` + own database · Kafka consumer · activity feed API · per-user notification read state (replacing `localStorage['mc.notif.seen']`) |
-| **14** | Push | 🔄 **Reopened 2026-09-19** — the trigger the parking note named ("a consumer that needs to be told rather than ask") was met the day a person changed a date on Field and watched Dashboards not move. **First half built the same evening:** the visible board re-reads tree, summary and activity every 20 s and the moment the tab returns to the foreground — no loading state, no lost selection; skipped while a write of ours is in flight. ⬜ Second half, the channel: transactional outbox → **Web PubSub** for web · **Notification Hubs → APNs/FCM** for mobile when backgrounded · at-least-once + client dedupe. The polling stays as the fallback when a socket drops |
+| **14** | Push | ✅ **Reopened and closed 2026-09-19** — the trigger the parking note named ("a consumer that needs to be told rather than ask") was met the day a person changed a date on Field and watched Dashboards not move. **Both halves built the same evening.** Polling: the visible board re-reads every 20 s and on returning to the foreground. The channel: every committed change writes an `outbox` row in its own transaction (`V13`), a 2-second relay sends it to **Web PubSub** as the app's managed identity, clients hold one socket and on a message run the same quiet refresh — the message is identifiers and a kind, never a number. Groups `project-<id>` for anyone who may read the project, `user-<oid>` for the owner; a FIELD token gets only its own. **Proven end to end against the live estate**: a change through the gateway → two frames on a raw socket within the relay's tick. ⬜ Left: **Notification Hubs → APNs/FCM** for a backgrounded phone — waits on H1, a device |
 
 ---
 
@@ -2411,7 +2411,7 @@ comes due in that pass.
 
 ---
 
-## Where things actually stand · 2026-09-18 (Sprints 23 and 24 open; E10 code side done)
+## Where things actually stand · 2026-09-19 (estate live, walked through, and live-synced)
 
 **Sprints 0–14 and 16 complete — E6 was pulled forward whole. Epic E4 finished bar shipping; E5
 closed or parked; E6 built; E7 built early.** A crew lead can record an update with no signal, photograph the reason,
@@ -2424,13 +2424,13 @@ dependency wired, all of it or none of it.
 
 | | |
 |---|---|
-| `mc-milestone-service` | **247 tests**, twelve against Azurite over the real Blob API. Contract **2.12.0**. Self-deploying (migrate, then roll) since 2026-09-19 |
+| `mc-milestone-service` | **256 tests**, twelve against Azurite over the real Blob API, eight for the outbox, the relay and the token. Contract **2.13.0**. Self-deploying (migrate, then roll) since 2026-09-19 |
 | `mc-api-gateway` | **56 tests** — version gate, routing (per built service, bare collections, and the `azure` profile), CORS policy (incl. the native webview origins, the exact cloud list and the unconfigured fallback), rate limiting, timeouts, fallback. **Deployed by its own pipeline since 2026-09-19** |
 | `mc-identity-service` | **19 tests** — JIT provisioning, batch resolve, the directory, boundaries, contract. Pinned at **1.1.0** |
 | `mc-template-service` | **28 tests** — the library over HTTP, the stale-version race, every draft rule, roles, prefix, tenant guard, contract. Pinned at **1.0.0** |
 | `mc-integration-service` | **46 tests** — every P6 mapping rule against a hand-computed fixture, the XML twin of that fixture previewing identically, both encodings, every refusal (XXE included), project choice, the multipart endpoint, roles, preview-only, tenant guard, contract. Pinned at **1.2.0**. No database |
-| `mc-dashboards` | **103 browser assertions**, in CI — nine against a 5,000-milestone project, four for the board catching up with someone else's change |
-| `mc-field` | **85 browser assertions**, in CI, plus an installable Android APK; web build live |
+| `mc-dashboards` | **111 browser assertions**, in CI — nine against a 5,000-milestone project, twelve for the board catching up with someone else's change by poll and by socket |
+| `mc-field` | **88 browser assertions**, in CI, plus an installable Android APK; web build live and on the live channel |
 | `mc-templates` | **78 browser assertions**, in CI |
 
 **No client on this platform holds domain data any more — and this time it is true.** The
@@ -2776,8 +2776,29 @@ through a gateway that self-deploys, with every password in a vault nobody has r
 
 **The Field write path, driven:** an update from the phone view landed in the audit trail — and the
 owner's next sentence reopened Sprint 14: *"it works, but not in real time."* Dashboards fetched on
-load and on the bell, never on its own. The polling half of the answer shipped the same evening
-(above, Sprint 14); the push channel is the sprint's second half.
+load and on the bell, never on its own. Both halves of the answer shipped the same evening.
+
+### Sprint 14 · closed 2026-09-19 — live sync, both halves
+
+Proposal at 18:00, approved at 18:10, proven against the live estate at 19:36 (`live-sync
+proposal`, the artifact). What was built, in the order it was built:
+
+| | |
+|---|---|
+| Bicep | `modules/webpubsub.bicep`: Web PubSub **Free_F1** (20 connections, 20k messages/day; an alert at 16), hub `milestones`, local auth off, *Web PubSub Service Owner* on the apps' identity. No connection string exists. Deployed; the Postgres Entra-admin child became a one-time opt-in on the way (Azure truncates the role name and refuses a second create) |
+| milestone-service **2.13.0** · 256 tests | `shared.MilestoneChanged` published inside every write transaction; `realtime.internal.OutboxWriter` writes the row `BEFORE_COMMIT`; `OutboxRelay` (2 s, ShedLock) sends to `project-<id>` and `user-<oid>` through the SDK as the app; `GET /realtime/token` mints a client URL whose groups the **server** chose from the token's roles — FIELD gets only its own; 204 with no endpoint. A recorder stands in for Web PubSub in the tests: one row per committed write and none per refused one, sent once per group and never twice, Web PubSub away loses nothing |
+| gateway 56 | `/api/v1/realtime/**`, both profiles |
+| Dashboards 111 · Field 88 | one `LiveSyncService`, speaking `json.webpubsub.azure.v1` directly (the SDK would drag `ws` and `buffer` into a browser bundle); a frame → the quiet refresh; backoff reconnect with the poll underneath; **Live / Polling** in the header, both true states. Field skips the refresh while it is saving or has queued work: its own replays are the truth it must not read over |
+
+**Three findings on the way, all in the templates or the tests now:** `@ConditionalOnProperty`
+treats an empty value as present (the SDK bean was built with no URL in every test context) →
+condition on non-blank; `innerText` honours `text-transform: uppercase` again; a drawer read the
+instant it opened raced the three requests behind it → the drive waits for content.
+
+**The proof:** `wss` to the real Web PubSub with a real token, a real-date change through the
+gateway, and two frames on the socket within the relay's tick — identifiers and a kind, nothing
+else. From the plan's Sprint 4 design to a working channel, with the two lessons the design had
+already learned (group per user, no payload) both kept.
 
 **Left from the walkthrough:** H1, the APK on a device · H3, the design-system release · a real
 client's export.

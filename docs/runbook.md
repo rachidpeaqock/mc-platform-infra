@@ -437,6 +437,7 @@ All alerts email `ag-mc-dev-ops`. Each says what it is; this is what to do first
 | `…-postgres-down` | everything is down | Azure status page first, then `az postgres flexible-server show -n psql-milestone-command-dev -g $rg --query state`. If `Stopped`: `az postgres flexible-server start`. The free-trial spending limit stops servers without warning — check `az account show --query state` |
 | `…-postgres-storage` | 80 % of 32 GB | autoGrow will handle it; the alert exists so the cost is not a surprise. `select pg_size_pretty(pg_database_size('milestone_db'))` |
 | `…-postgres-cpu` | burst credits draining | which query: `select query, calls, mean_exec_time from pg_stat_statements order by total_exec_time desc limit 10` (extension needs enabling once) |
+| `…-webpubsub-connections` | the Free tier's 20 connections are nearly used (16) | `webpubsub.bicep` → `sku: Standard_S1`, redeploy `platform`; ~€45/month. Until then the 21st board falls back to polling — it still works |
 | budget 80 % / forecast 100 % | money | `az consumption usage list` or the portal's Cost analysis by resource. The usual suspect is a container app that stopped scaling to zero |
 
 ---
