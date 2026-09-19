@@ -286,6 +286,22 @@ az staticwebapp show -n stapp-mc-field-dev -g $rg --query defaultHostname -o tsv
 
 Put that hostname in `platform-apps.ts` (`field: null` today) in shell, dashboards and templates.
 
+⚠️ *found 2026-09-19:* **a new site is also a new Entra redirect URI.** The web apps sign in with the
+*Milestone Command Web* registration (`5281cccd-756a-4353-8ef5-908eac2d543b`), and a host it does
+not list fails with `AADSTS50011` at sign-in. Add it as an **SPA** redirect (not Web — an SPA's
+token redemption is cross-origin, and a Web-type URI fails with `AADSTS9002326`):
+
+```powershell
+$app = az ad app show --id 5281cccd-756a-4353-8ef5-908eac2d543b --query id -o tsv
+$uris = az ad app show --id 5281cccd-756a-4353-8ef5-908eac2d543b --query spa.redirectUris -o json | ConvertFrom-Json
+$uris += "https://<new host>"
+@{ spa = @{ redirectUris = $uris } } | ConvertTo-Json -Depth 3 | Set-Content spa.json
+az rest --method patch --url "https://graph.microsoft.com/v1.0/applications/$app" --headers "Content-Type=application/json" --body "@spa.json"
+```
+
+Entra replicates registration changes to its token endpoints in a few minutes; a sign-in in that
+window can pass the authorize step and still fail the token step with `9002326`. Wait, reload, retry.
+
 ### 1.10 Budget
 
 ```powershell
