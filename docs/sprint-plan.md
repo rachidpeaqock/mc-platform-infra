@@ -2738,8 +2738,14 @@ GitHub runner, read-only) — the last is how the two job failures were diagnose
 template saves, imports and project creation need. One role assignment in the Enterprise
 Application, or `az rest` to Graph.
 
-**Left in Sprint 23:** the restore drill (running as this is written) · the Postgres Entra
-administrator, a second `platform` deploy with `MC_DEPLOYER_OBJECT_ID` set.
+**The restore drill, performed.** PITR to a new server: 7 minutes to `Ready`, 12 to usable — the
+five in between were the finding: **a restored Flexible Server has no firewall rules**, so nothing
+can connect until one is added (runbook §5 step 3 now does). Verified from inside the environment
+with a one-off job: 32 milestones, 25 audit rows, Flyway history at the restore point, owner
+`milestone_svc`. Drill server deleted. §5's table has its first row.
+
+**Sprint 23 is closed** except one deferred item: the Postgres Entra administrator (a second
+`platform` deploy with `MC_DEPLOYER_OBJECT_ID` set, now that the server can have Entra auth on).
 
 ### Sprint 24 · opened 2026-09-18 — the number the risk register named
 

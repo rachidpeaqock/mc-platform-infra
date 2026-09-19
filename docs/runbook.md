@@ -381,8 +381,12 @@ $when = (Get-Date).AddMinutes(-30).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:
 az postgres flexible-server restore -g $rg -n psql-milestone-command-dev-drill --source-server psql-milestone-command-dev --restore-time $when
 # ~10–15 minutes. The restored server has the same admin login and password, all databases, all roles.
 
-# 3. Prove the data is there, from the bootstrap job's image or any psql:
+# 3. Prove the data is there. ⚠️ found 2026-09-19: the restored server has NO firewall rules —
+#    nothing can connect until one exists. From a machine that can reach 5432:
 az postgres flexible-server firewall-rule create -g $rg -n psql-milestone-command-dev-drill -r me --start-ip-address <your ip> --end-ip-address <your ip>
+#    From the development machine (which cannot): AllowAzureServices + a one-off job, then read it with ops-logs.yml —
+az postgres flexible-server firewall-rule create -g $rg -n psql-milestone-command-dev-drill -r AllowAzureServices --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
+#    az containerapp job create -n job-drill-check -g $rg --yaml drill-job.yaml   (postgres:17-alpine, PGHOST=<drill fqdn>, PGPASSWORD=keyvaultref pg-admin-password, psql -c "select count(*) from milestone" …)
 $env:PGPASSWORD = az keyvault secret show --vault-name kv-mc-milestone-dev -n pg-admin-password --query value -o tsv
 psql "host=psql-milestone-command-dev-drill.postgres.database.azure.com dbname=milestone_db user=mcadmin sslmode=require" -c "select count(*) from milestone; select max(created_at) from milestone_log;"
 Remove-Item Env:PGPASSWORD
@@ -402,7 +406,7 @@ audit rows reference them by digest.
 
 | Drill | Date | Restore point → usable | Notes |
 |---|---|---|---|
-| 1 | — | — | not yet performed |
+| 1 | 2026-09-19 | restore 7 min; **usable 12 min** — 5 of them finding that a restored server has **no firewall rules** (PITR does not copy them; step 3 below now adds one) | 32 milestones, 25 audit rows, Flyway history 900/6/5 at the 11:11 UTC point (the 11:19 migration correctly absent), owner `milestone_svc`. Verified with a one-off job inside the environment (`docker.io/library/postgres:17-alpine`, admin password by vault reference), because port 5432 is unreachable from the development machine. Drill server deleted 11:58 |
 
 ---
 
