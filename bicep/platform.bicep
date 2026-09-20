@@ -258,9 +258,12 @@ module identitySvc 'modules/container-app.bicep' = {
     registryServer: acr
     image: '${acr}/mc-identity-service:${imageTag}'
     port: 8083
-    // Names are an enhancement, not a prerequisite (compose.yml): a cold
-    // start here costs a row without attribution for thirty seconds.
-    minReplicas: 0
+    // Names are an enhancement, not a prerequisite (compose.yml) — but
+    // the board asks for them on every open and /me on every sign-in, and
+    // a cold start here is a 504 at the gateway, not a missing name
+    // (the load test's third run died on exactly that, 2026-09-20). The
+    // same reasoning that keeps template and integration warm.
+    minReplicas: 1
     maxReplicas: 2
     envVars: concat(commonEnv, [
       { name: 'DB_URL', value: jdbc(postgres.outputs.fqdn, 'identity_db') }

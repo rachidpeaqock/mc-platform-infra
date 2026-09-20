@@ -111,9 +111,16 @@ export const options = {
  * writes below leave read "Automation (fad7865a)" rather than a bare oid.
  */
 export function setup() {
-  const me = http.get(`${BASE}/api/v1/me`, { headers: auth });
+  // A cold identity-service is a 504 at the gateway, not a bad token;
+  // give it the thirty seconds a Spring Boot start takes before deciding.
+  let me;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    me = http.get(`${BASE}/api/v1/me`, { headers: auth });
+    if (me.status === 200 || me.status === 401 || me.status === 403) break;
+    sleep(10);
+  }
   if (me.status !== 200) {
-    throw new Error(`/me answered ${me.status}: the token is not accepted here (${BASE}).`);
+    throw new Error(`/me answered ${me.status}: ${me.status === 401 || me.status === 403 ? 'the token is not accepted here' : 'the platform did not answer'} (${BASE}).`);
   }
   const project = http.get(`${BASE}/api/v1/projects/${PROJECT}`, { headers: auth });
   if (project.status !== 200) {
