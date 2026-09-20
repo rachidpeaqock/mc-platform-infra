@@ -1,0 +1,105 @@
+name: Ops · load test
+
+# Sprint 24 — the PM board at 5,000 milestones, against the estate, unattended.
+#
+# The first path on the platform that no person signs in for. The token is
+# the machine identity's — "Milestone Command Automation", client
+# credentials, the SERVICE app role — minted here from the secret the vault
+# holds, and never printed: the value is masked the moment it is read.
+# SERVICE may read everything and change a real date, and nothing else
+# (ServiceRoleTest), which is exactly what load/pm-tree.js does.
+#
+#   gh workflow run load.yml                       # seed, then run
+#   gh workflow run load.yml -f seed=false         # the fixture is already there
+#   gh run watch; gh run download -n load-last-run # the k6 summary as JSON
+#
+# ⚠️ Expect the postgres-cpu alert (runbook §6): a B1ms at 5,000 rows a
+# read is what the test is for. The write rate stays under the gateway's
+# per-caller ceiling on purpose — see WRITE_RATE in the script.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Run job-seed-load first (recreates LOAD-5K; ~1 min)
+        type: boolean
+        default: true
+      write_rate:
+        description: Real-date writes per second from the one machine caller (≤ 1 stays under the 60/min limiter)
+        type: string
+        default: '0.8'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RG: rg-milestone-command-dev
+      VAULT: kv-mc-milestone-dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Seed LOAD-5K
+        if: inputs.seed
+        run: |
+          set -euo pipefail
+          az extension add -n containerapp --upgrade -y >/dev/null 2>&1 || true
+          exec_name=$(az containerapp job start -n job-seed-load -g "$RG" --query name -o tsv)
+          echo "execution $exec_name"
+          for i in $(seq 1 60); do
+            status=$(az containerapp job execution show -n job-seed-load -g "$RG" --job-execution-name "$exec_name" --query properties.status -o tsv)
+            case "$status" in
+              Succeeded) echo "seeded"; exit 0 ;;
+              Failed|Stopped) echo "::error::seed job $status — read it with ops-logs.yml (target=job-seed-load kind=job)"; exit 1 ;;
+            esac
+            sleep 5
+          done
+          echo "::error::seed job still $status after 5 minutes"; exit 1
+
+      - name: Token for the machine identity
+        env:
+          TENANT: ${{ vars.AZURE_TENANT_ID }}
+          CLIENT_ID: ${{ vars.AUTOMATION_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          # Read, mask, use, forget. Secrets User on the vault is the CI
+          # identity's one data-plane role (foundation.bicep, ciPrincipalId).
+          secret=$(az keyvault secret show --vault-name "$VAULT" -n automation-client-secret --query value -o tsv)
+          echo "::add-mask::$secret"
+          token=$(curl -sS --fail -X POST "https://login.microsoftonline.com/$TENANT/oauth2/v2.0/token" \
+            --data-urlencode "client_id=$CLIENT_ID" \
+            --data-urlencode "client_secret=$secret" \
+            --data-urlencode "grant_type=client_credentials" \
+            --data-urlencode "scope=api://milestone-command/.default" | jq -r '.access_token // empty')
+          [ -n "$token" ] || { echo "::error::no token from Entra"; exit 1; }
+          echo "::add-mask::$token"
+          echo "TOKEN=$token" >> "$GITHUB_ENV"
+          # The gateway's public name, from the estate rather than a constant.
+          fqdn=$(az containerapp show -n ca-api-gateway -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)
+          echo "BASE_URL=https://$fqdn" >> "$GITHUB_ENV"
+          echo "gateway https://$fqdn"
+
+      - uses: grafana/setup-k6-action@v1
+
+      - name: k6
+        env:
+          WRITE_RATE: ${{ inputs.write_rate }}
+        run: k6 run load/pm-tree.js
+
+      - name: Keep the summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-last-run
+          path: load/last-run.json
+          if-no-files-found: ignore

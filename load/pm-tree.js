@@ -21,8 +21,13 @@
 //   TOKEN=$(...) k6 run load/pm-tree.js
 //
 // TOKEN is a real bearer for the API — the gateway validates it against
-// Entra whichever profile it runs, so there is no "load-test token". The
-// easiest source is a signed-in Dashboards tab: sessionStorage.mcToken.
+// Entra whichever profile it runs, so there is no "load-test token". Two
+// sources: a signed-in Dashboards tab (sessionStorage.mcToken), or the
+// machine identity — "Milestone Command Automation", client credentials,
+// the SERVICE role — which is what .github/workflows/load.yml mints and
+// is the unattended path. SERVICE may read everything and change a real
+// date, and nothing else (ServiceRoleTest in mc-milestone-service), which
+// is exactly the set this script uses.
 // Against Azure: BASE_URL=https://ca-api-gateway.<env-domain> — and read
 // runbook §6 first, because this WILL trip the postgres-cpu alert on a
 // B1ms, which is one of the things it is for.
@@ -46,7 +51,16 @@ const summaryMs = new Trend('summary_ms', true);
 const detailMs = new Trend('detail_ms', true);
 const writeMs = new Trend('write_ms', true);
 const conflicts = new Rate('write_conflicts');   // 409s — expected under contention, counted, not failed
+const rateLimited = new Rate('rate_limited');    // 429s — the gateway's per-caller ceiling, see WRITE_RATE
 const serverErrors = new Rate('server_errors');
+
+// ⚠️ The gateway caps one caller at 60 writes a minute (burst 40) — B14,
+// sized for a phone replaying an outbox, and deliberately not raised for
+// this test: a run that bypassed it would prove nothing about the
+// platform a crew lead meets. One token is one caller, so the default is
+// under that ceiling: 0.8/s is 48 a minute, still ~2,900 an hour from a
+// single identity. A run with many tokens (many callers) can go higher.
+const WRITE_RATE = Number(__ENV.WRITE_RATE || 0.8);
 
 export const options = {
   scenarios: {
@@ -65,7 +79,7 @@ export const options = {
     'field-sync': {
       executor: 'constant-arrival-rate',
       exec: 'fieldSync',
-      rate: 3, timeUnit: '1s',              // 3 real-date changes a second is ~10,000 an hour: far above a pilot
+      rate: WRITE_RATE, timeUnit: '1s',     // see WRITE_RATE — one caller stays under the gateway's ceiling
       duration: '4m30s',
       preAllocatedVUs: 10, maxVUs: 40,
     },
@@ -82,9 +96,28 @@ export const options = {
     detail_ms: ['p(95)<400'],
     write_ms: ['p(95)<500'],
     server_errors: ['rate<0.001'],
+    rate_limited: ['rate<0.01'],          // a 429 means the run was misconfigured, not that the platform failed
     http_req_failed: ['rate<0.05'],       // 409s count as "failed" to k6; the conflicts rate below is the honest number
   },
 };
+
+/**
+ * Before any VU starts: announce the caller, and refuse to run without the
+ * fixture. /me is identity-service's just-in-time provisioning — after this
+ * call the automation has a name on the platform, so the activity rows the
+ * writes below leave read "Automation (fad7865a)" rather than a bare oid.
+ */
+export function setup() {
+  const me = http.get(`${BASE}/api/v1/me`, { headers: auth });
+  if (me.status !== 200) {
+    throw new Error(`/me answered ${me.status}: the token is not accepted here (${BASE}).`);
+  }
+  const project = http.get(`${BASE}/api/v1/projects/${PROJECT}`, { headers: auth });
+  if (project.status !== 200) {
+    throw new Error(`project ${PROJECT} answered ${project.status}: run load/seed-5000.sql (job-seed-load on Azure) first.`);
+  }
+  console.log(`running as ${me.json().displayName} against ${project.json().name}; writes at ${WRITE_RATE}/s`);
+}
 
 /** Milestone ids as seed-5000.sql minted them: d…3 + hex(n), n in 1..5000. */
 function milestoneId(n) {
@@ -161,6 +194,7 @@ export function fieldSync() {
   writeMs.add(res.timings.duration);
   note5xx(res);
   conflicts.add(res.status === 409);
+  rateLimited.add(res.status === 429);
   check(res, { 'real-date 200 or 409': (r) => r.status === 200 || r.status === 409 });
 }
 
@@ -181,7 +215,7 @@ export function handleSummary(data) {
     `  summary  p50 ${p('summary_ms', 'p(50)')} ms   p95 ${p('summary_ms', 'p(95)')} ms`,
     `  detail   p50 ${p('detail_ms', 'p(50)')} ms   p95 ${p('detail_ms', 'p(95)')} ms`,
     `  write    p50 ${p('write_ms', 'p(50)')} ms   p95 ${p('write_ms', 'p(95)')} ms   conflicts ${data.metrics.write_conflicts ? (data.metrics.write_conflicts.values.rate * 100).toFixed(1) : '—'} %`,
-    `  5xx rate ${data.metrics.server_errors ? (data.metrics.server_errors.values.rate * 100).toFixed(3) : '—'} %`,
+    `  5xx rate ${data.metrics.server_errors ? (data.metrics.server_errors.values.rate * 100).toFixed(3) : '—'} %   429 rate ${data.metrics.rate_limited ? (data.metrics.rate_limited.values.rate * 100).toFixed(1) : '—'} %`,
     '',
   ];
   return { stdout: lines.join('\n'), 'load/last-run.json': JSON.stringify(data, null, 2) };

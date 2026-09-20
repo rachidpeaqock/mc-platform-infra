@@ -32,6 +32,9 @@ param readerPrincipalId string
 @description('Object id of whoever deploys — gets Secrets Officer so the bootstrap step can write the passwords')
 param deployerPrincipalId string
 
+@description('Service principal of the GitHub deploy identity — gets Secrets User so load.yml can read automation-client-secret on a runner. Empty grants nothing.')
+param ciPrincipalId string = ''
+
 // Vault names: 3–24 chars, globally unique. Deterministic on purpose —
 // platform.dev.bicepparam reads pg-admin-password out of this vault with
 // getSecret(), which takes a literal name, so a uniqueString() suffix
@@ -78,6 +81,21 @@ resource readSecrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   properties: {
     roleDefinitionId: secretsUserRoleId
     principalId: readerPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Sprint 24 — the load-test workflow mints the machine identity's token
+// on a GitHub runner, and the only place its secret lives is this vault.
+// Contributor on the group (which the CI identity has) is control plane;
+// reading a secret's value is data plane and needs its own role. Reader,
+// not Officer: CI reads secrets, it never writes them.
+resource readSecretsCi 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(ciPrincipalId)) {
+  name: guid(vault.id, ciPrincipalId, secretsUserRoleId)
+  scope: vault
+  properties: {
+    roleDefinitionId: secretsUserRoleId
+    principalId: ciPrincipalId
     principalType: 'ServicePrincipal'
   }
 }

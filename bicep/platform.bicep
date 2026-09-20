@@ -423,6 +423,41 @@ module bootstrapDb 'modules/job.bicep' = {
   }
 }
 
+// Sprint 24 — the load fixture. load/seed-5000.sql, verbatim, run as the
+// service's own login (it owns the tables) by a one-off job: the same
+// shape as job-bootstrap-db, because port 5432 is unreachable from the
+// development machine and a GitHub runner is not promised a path either.
+// Started by load.yml, or by hand:
+//   az containerapp job start -n job-seed-load -g rg-milestone-command-dev
+// Idempotent — the script deletes and recreates LOAD-5K — and dev-only by
+// intent: it is a fixture, and the audit rows k6 writes on it are noise.
+var seedSql = loadTextContent('../load/seed-5000.sql')
+
+module seedLoad 'modules/job.bicep' = {
+  name: 'job-seed-load'
+  params: {
+    name: 'job-seed-load'
+    location: location
+    environmentId: containerEnv.outputs.id
+    identityId: identity.id
+    image: 'docker.io/library/postgres:17-alpine'
+    // -c with several statements runs them as sent; the script's own
+    // BEGIN/COMMIT bound the transaction and the final SELECT is what
+    // the log shows: "milestones | 5000".
+    command: ['psql', '-v', 'ON_ERROR_STOP=1', '-c', seedSql]
+    envVars: [
+      { name: 'PGHOST', value: postgres.outputs.fqdn }
+      { name: 'PGUSER', value: 'milestone_svc' }
+      { name: 'PGDATABASE', value: 'milestone_db' }
+      { name: 'PGSSLMODE', value: 'require' }
+    ]
+    secrets: [
+      { name: 'pg-milestone-svc-password', envName: 'PGPASSWORD', keyVaultUrl: '${secretUrl}pg-milestone-svc-password' }
+    ]
+    timeoutSeconds: 300
+  }
+}
+
 // ---- alerts ----------------------------------------------------------------
 
 module alerts 'modules/alerts.bicep' = {

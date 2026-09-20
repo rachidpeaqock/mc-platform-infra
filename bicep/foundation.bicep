@@ -36,6 +36,9 @@ param opsEmail string
 @description('Object id of the person or pipeline identity running the deployment. Gets Key Vault Secrets Officer so the bootstrap step can write the passwords.')
 param deployerPrincipalId string
 
+@description('Service principal object id of the GitHub deploy identity (az ad sp show --id $AZURE_CLIENT_ID --query id). Key Vault Secrets User, so load.yml can read the automation secret. Empty grants nothing.')
+param ciPrincipalId string = ''
+
 // One identity for all the apps and jobs: AcrPull on the registry, Secrets
 // User on the vault. Per-app identities would be finer-grained and would
 // buy nothing while every app reads the same registry and no app may
@@ -73,6 +76,7 @@ module vault 'modules/keyvault.bicep' = {
     location: location
     readerPrincipalId: identity.properties.principalId
     deployerPrincipalId: deployerPrincipalId
+    ciPrincipalId: ciPrincipalId
   }
 }
 
