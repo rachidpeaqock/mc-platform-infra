@@ -2859,6 +2859,50 @@ repos. Gateway at **55 tests**.
 **Left in Sprint 24:** the k6 run (H4) · the pen test — needs the deployed estate. E10's code side
 is done; what remains of E10 is runbook §1 and what it finds.
 
+### Sprint 24 · 2026-09-20 — the machine identity, and what the first load run found
+
+**The first path nobody signs in for.** `load/README.md` had said it plainly: the alternative to a
+machine identity was a person's hour-long token pasted into a CI variable, and that was not going
+to be built. So, in three stages the same morning: **(A)** Entra — a seventh app role on the API,
+`SERVICE`, `allowedMemberTypes: Application` so no human token can ever carry it; a registration,
+*Milestone Command Automation*, whose one secret went into the vault through ARM and was never
+printed; the role granted to its service principal. A `client_credentials` token decoded to
+`roles: ["SERVICE"]` and read every endpoint through the live gateway before a line of service code
+changed. **(B)** What the services let it do — decided as "every read, plus the real-date change,
+and nothing else": one word added to `canChangeRealDate` (it owns nothing, so the PM branch, not
+the FIELD one), one to the live channel's project readers, and `ServiceRoleTest` as the whole
+allow-list in one file — reads 200, real date 200 with the audit row naming the service principal's
+oid, and 403 on re-baseline, create/edit/delete, phases, projects, template-rows, calendars; pinning
+tests in template-service (reads the library, cannot write it) and integration-service (cannot
+preview a P6 file). identity-service names a token holding `SERVICE` **"Automation (fad7865a)"** —
+a client-credentials token has no `name` claim, and the fallback would have put a bare oid on every
+activity row. **(C)** `load.yml`: seed through `job-seed-load` (the seed SQL, verbatim, in
+`platform.bicep`), read the secret on a runner (Key Vault Secrets User for the CI identity — its
+one data-plane role), mint, mask, run k6. The script calls `/me` first so the name exists before
+the first write. Four CI runs green; foundation and platform redeployed from the laptop.
+
+**Then the run.** The first attempt died on k6's `rate` being an integer (0.8/s → 48/min: the
+write rate is under the gateway's 60/min per-caller ceiling on purpose, and 429s are now a
+threshold, because a run that raised the limiter for itself would prove nothing). The second ran
+end to end — *"running as Automation (fad7865a) against Load test — 5,000 milestones"* — and
+**failed every threshold**: tree p95 **16.1 s**, summary **12.5 s**, detail **6.5 s**, write
+**7.3 s**, **52 % 5xx**. Successful responses had a median of 6.3 s; the failures were fast, ~145 ms
+— the breaker opening after the upstream slowed. Postgres (B1ms, one burstable vCPU) sat at
+**78–86 % CPU** for the whole window with every service idle at 0.1 core on one replica.
+
+**Not a sizing problem; a query problem, in two halves.** `biz_days()` walked the span a day at a
+time — `generate_series` over every calendar day with a `NOT EXISTS` per day — and
+`milestone_view` called it **three times per row** (variance, then twice more inside the RAG
+`CASE`). A 5,000-row tree was 15,000 calls each doing a per-day scan. **V14:** working days in
+closed form — for each working weekday, `floor((b − anchor)/7) − floor((a − anchor)/7)`, summed,
+minus the holidays in range on one indexed lookup — and the view evaluates it once, in a
+`LATERAL`. `BizDaysTest` already pinned every edge (start excluded, end included, the exact
+negative, holidays on weekends, six- and seven-day weeks, a year to the day); two more for the
+closed form's own edges: dates before the 2024 anchor, and a backwards partial week with a holiday.
+The results table in `load/README.md` has the first row; the second is the rerun on V14.
+
+**Cost.** Two probes and a load run: the postgres-cpu alert fired as the runbook says it will.
+
 And a fourth finding while opening MC-440: **the gateway's `azure` profile listed only the milestones
 route.** A profile's `routes:` list replaces the default one, so the deployed gateway could not
 reach identity-service or template-service at all — every `/users` and `/templates` call would

@@ -67,4 +67,4 @@ real event and the 409 is the correct answer.
 
 | Date | Where | tree p95 | summary p95 | detail p95 | write p95 | 5xx | Notes |
 |---|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — | not yet run — k6 and Docker are absent on the development machine; the first run is H4 |
+| 2026-09-20 10:45 UTC | Azure dev, from a GitHub runner, as the machine identity, V13 | **16,115** | **12,480** | **6,480** | **7,294** | **52.1 %** | ❌ every threshold. Postgres B1ms at 78–86 % CPU for the whole window, every app idle at 0.1 core / 1 replica; successful responses median 6.3 s, failures ~145 ms (breaker open). Cause: `biz_days()` walked the span day by day and `milestone_view` called it three times a row → V14 |
