@@ -15,7 +15,7 @@ name: Ops · load test
 #
 # ⚠️ Expect the postgres-cpu alert (runbook §6): a B1ms at 5,000 rows a
 # read is what the test is for. The write rate stays under the gateway's
-# per-caller ceiling on purpose — see WRITE_RATE in the script.
+# per-caller ceiling on purpose — see WRITES_PER_MINUTE in the script.
 
 on:
   workflow_dispatch:
@@ -24,10 +24,10 @@ on:
         description: Run job-seed-load first (recreates LOAD-5K; ~1 min)
         type: boolean
         default: true
-      write_rate:
-        description: Real-date writes per second from the one machine caller (≤ 1 stays under the 60/min limiter)
+      writes_per_minute:
+        description: Real-date writes per minute from the one machine caller (< 60 stays under the gateway's limiter)
         type: string
-        default: '0.8'
+        default: '48'
 
 permissions:
   contents: read
@@ -93,7 +93,7 @@ jobs:
 
       - name: k6
         env:
-          WRITE_RATE: ${{ inputs.write_rate }}
+          WRITES_PER_MINUTE: ${{ inputs.writes_per_minute }}
         run: k6 run load/pm-tree.js
 
       - name: Keep the summary

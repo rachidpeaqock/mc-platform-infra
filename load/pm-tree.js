@@ -58,9 +58,10 @@ const serverErrors = new Rate('server_errors');
 // sized for a phone replaying an outbox, and deliberately not raised for
 // this test: a run that bypassed it would prove nothing about the
 // platform a crew lead meets. One token is one caller, so the default is
-// under that ceiling: 0.8/s is 48 a minute, still ~2,900 an hour from a
+// under that ceiling: 48 a minute (0.8/s), still ~2,900 an hour from a
 // single identity. A run with many tokens (many callers) can go higher.
-const WRITE_RATE = Number(__ENV.WRITE_RATE || 0.8);
+// Per minute because k6's rate is an integer — the first run failed on 0.8.
+const WRITES_PER_MINUTE = Number(__ENV.WRITES_PER_MINUTE || 48);
 
 export const options = {
   scenarios: {
@@ -79,7 +80,7 @@ export const options = {
     'field-sync': {
       executor: 'constant-arrival-rate',
       exec: 'fieldSync',
-      rate: WRITE_RATE, timeUnit: '1s',     // see WRITE_RATE — one caller stays under the gateway's ceiling
+      rate: WRITES_PER_MINUTE, timeUnit: '1m',   // see WRITES_PER_MINUTE — one caller stays under the gateway's ceiling
       duration: '4m30s',
       preAllocatedVUs: 10, maxVUs: 40,
     },
@@ -116,7 +117,7 @@ export function setup() {
   if (project.status !== 200) {
     throw new Error(`project ${PROJECT} answered ${project.status}: run load/seed-5000.sql (job-seed-load on Azure) first.`);
   }
-  console.log(`running as ${me.json().displayName} against ${project.json().name}; writes at ${WRITE_RATE}/s`);
+  console.log(`running as ${me.json().displayName} against ${project.json().name}; writes at ${WRITES_PER_MINUTE}/min`);
 }
 
 /** Milestone ids as seed-5000.sql minted them: d…3 + hex(n), n in 1..5000. */
