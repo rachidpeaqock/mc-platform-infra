@@ -51,7 +51,7 @@ const summaryMs = new Trend('summary_ms', true);
 const detailMs = new Trend('detail_ms', true);
 const writeMs = new Trend('write_ms', true);
 const conflicts = new Rate('write_conflicts');   // 409s — expected under contention, counted, not failed
-const rateLimited = new Rate('rate_limited');    // 429s — the gateway's per-caller ceiling, see WRITE_RATE
+const rateLimited = new Rate('rate_limited');    // 429s — the gateway's per-caller ceiling, see WRITES_PER_MINUTE
 const serverErrors = new Rate('server_errors');
 
 // ⚠️ The gateway caps one caller at 60 writes a minute (burst 40) — B14,
@@ -64,6 +64,8 @@ const serverErrors = new Rate('server_errors');
 const WRITES_PER_MINUTE = Number(__ENV.WRITES_PER_MINUTE || 48);
 
 export const options = {
+  // k6 names the median 'med' and reports p(99) only when asked.
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   scenarios: {
     'pm-board': {
       executor: 'ramping-vus',
@@ -212,10 +214,10 @@ export function handleSummary(data) {
   const lines = [
     '',
     'Sprint 24 — 5,000 milestones',
-    `  tree     p50 ${p('tree_ms', 'p(50)')} ms   p95 ${p('tree_ms', 'p(95)')} ms   p99 ${p('tree_ms', 'p(99)')} ms`,
-    `  summary  p50 ${p('summary_ms', 'p(50)')} ms   p95 ${p('summary_ms', 'p(95)')} ms`,
-    `  detail   p50 ${p('detail_ms', 'p(50)')} ms   p95 ${p('detail_ms', 'p(95)')} ms`,
-    `  write    p50 ${p('write_ms', 'p(50)')} ms   p95 ${p('write_ms', 'p(95)')} ms   conflicts ${data.metrics.write_conflicts ? (data.metrics.write_conflicts.values.rate * 100).toFixed(1) : '—'} %`,
+    `  tree     p50 ${p('tree_ms', 'med')} ms   p95 ${p('tree_ms', 'p(95)')} ms   p99 ${p('tree_ms', 'p(99)')} ms`,
+    `  summary  p50 ${p('summary_ms', 'med')} ms   p95 ${p('summary_ms', 'p(95)')} ms`,
+    `  detail   p50 ${p('detail_ms', 'med')} ms   p95 ${p('detail_ms', 'p(95)')} ms`,
+    `  write    p50 ${p('write_ms', 'med')} ms   p95 ${p('write_ms', 'p(95)')} ms   conflicts ${data.metrics.write_conflicts ? (data.metrics.write_conflicts.values.rate * 100).toFixed(1) : '—'} %`,
     `  5xx rate ${data.metrics.server_errors ? (data.metrics.server_errors.values.rate * 100).toFixed(3) : '—'} %   429 rate ${data.metrics.rate_limited ? (data.metrics.rate_limited.values.rate * 100).toFixed(1) : '—'} %`,
     '',
   ];

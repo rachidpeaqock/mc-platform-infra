@@ -24,6 +24,7 @@ Severity is what it would have cost, not how hard it was to find.
 | F4 | **Low** | The default CORS list admits `https://*.azurestaticapps.net` — every static site in Azure, not the platform's four. Acceptable while the token is the real gate (a foreign page cannot obtain a user's token; it lives in the app's own session storage), and unnecessary once the hostnames are known | ✅ Fixed — the `azure` profile reads an exact list from `CORS_ALLOWED_ORIGINS`; `platform.bicep` fills it from the four sites plus the two native origins; `AzureProfileRoutingTest.corsOriginsAreExactInTheCloud` proves a third `azurestaticapps.net` host is refused and the verb list survived the override |
 | F5 | **Info** | No automated dependency updates anywhere; `npm audit --omit=dev` is clean on all four front ends today, and Maven has never been audited (no local JVM) | ✅ `dependabot.yml` in all eleven repos: Maven / npm / Actions, weekly, minor+patch grouped, framework majors excluded |
 | F6 | **Info** | Identity-service has no `ApiExceptionHandler`; it relies on Boot's default error rendering | No change — Boot 4 defaults omit message and stack trace (`include-message: never`), and the service has no domain exceptions to shape |
+| F7 | **Info** (found doing the load test) | **The first unattended caller needed an identity, and the alternative on offer was a person's token in a CI variable.** `load/README.md` said so and parked it. A user token in a variable is a credential with a human's full rights, an hour's life and no way to say which run used it | ✅ Built 2026-09-20 (runbook §11): an application-only `SERVICE` app role on the API; a registration whose secret lives only in the vault; the services let it read everything and change a real date — nothing else, pinned by tests in three services; identity names it "Automation (…)" on every row; revocable in one command |
 
 ## 2. What was checked and held
 
@@ -87,7 +88,7 @@ templates, field, at the time of review.
 | Maven dependency audit | No JVM on the development machine | Dependabot (F5) from its first Monday; `mvn dependency-check` in `java-service.yml` is a follow-up if the PRs show a pattern |
 | Entra registration settings | Not in any repo | A read-through of the API and Web registrations against README "Identity": v2 tokens, PKCE only, six roles, no implicit flow, no client secret |
 | Field on a device | H1 | The APK; F1 removed the one failure this review could see from here |
-| Rate limiting under load | Needs the stack | `load/pm-tree.js` at 3 writes/s is under the limit by design; a second scenario at 2/s per VU from one caller would be the test |
+| Rate limiting under load | Needs the stack | `load/pm-tree.js` writes at 48/min from one caller — under the 60/min limiter by design, and 429s are a threshold so a misconfigured run fails loudly. Proving the limiter *refuses* is a second run with `writes_per_minute=120`, which should fail on `rate_limited` and nothing else |
 
 ## 4. What changed
 

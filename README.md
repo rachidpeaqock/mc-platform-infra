@@ -155,9 +155,10 @@ A push to `main` publishes; a pull request gets its own preview environment, tor
 
 | Registration | Purpose |
 |---|---|
-| **Milestone Command API** | `api://milestone-command`. Defines the six app roles — `VIEWER`, `EXECUTIVE`, `PM`, `FIELD`, `PLANNER`, `ADMIN` — that land in the token's `roles` claim, and the `access_as_user` scope |
+| **Milestone Command API** | `api://milestone-command`. Defines the seven app roles — `VIEWER`, `EXECUTIVE`, `PM`, `FIELD`, `PLANNER`, `ADMIN` for people, `SERVICE` for applications only — that land in the token's `roles` claim, and the `access_as_user` scope |
 | **Milestone Command Web** | The three Angular apps. SPA platform, so PKCE with no client secret |
-| **Milestone Command GitHub Actions** | Deployment identity. **No secret** — GitHub OIDC federated credential, `Contributor` scoped to the resource group only |
+| **Milestone Command GitHub Actions** | Deployment identity. **No secret** — GitHub OIDC federated credential, `Contributor` scoped to the resource group only; Key Vault Secrets User, for one read (`load.yml`) |
+| **Milestone Command Automation** | The machine identity (Sprint 24). Client credentials; holds only the API's application-only `SERVICE` role — every read plus the real-date change. Secret in the vault as `automation-client-secret`, one year; `AUTOMATION_CLIENT_ID` on this repo. Runbook §11 |
 
 ⚠️ **`requestedAccessTokenVersion` is set to 2 on the API registration and must stay there.** The default of 1 makes Entra issue tokens whose issuer is `https://sts.windows.net/{tenant}/`, which fails validation against the `/v2.0` issuer URI the gateway is configured with — and the resulting error says nothing about token versions.
 

@@ -382,6 +382,20 @@ downtime: the app holds key 1; renewing key 2 costs nothing, and the module alwa
 `platform.bicep` (the parameter file reads it with `getSecret()`, and the server resource applies
 it). Nothing running uses this password — only the bootstrap job and you.
 
+**The automation's client secret** (§11) — mint in Entra, write to the vault, and nothing restarts:
+the only reader is `load.yml`, which fetches it per run. From this machine the vault's data plane is
+unreachable, so the write goes through ARM with a secure parameter, the same way §1.3 wrote the
+passwords. The value never appears in a terminal:
+
+```powershell
+$app = 'fad7865a-cb9a-4655-8b69-e9ec57211f95'
+$new = az ad app credential reset --id $app --append --display-name "load-$(Get-Date -f yyyy-MM)" --years 1 --query password -o tsv
+az deployment group create -g $rg -n automation-secret -f bicep/vault-secret.bicep -p name=automation-client-secret value=$new -o none
+Remove-Variable new
+az ad app credential list --id $app -o table            # then delete the previous keyId
+az ad app credential delete --id $app --key-id <old>
+```
+
 ---
 
 ## 5. Restore drill
@@ -518,7 +532,8 @@ In the order they would matter for a first paying customer:
 | Vault | soft delete, no purge protection | `env == 'prod'` turns it on (already in `keyvault.bicep`) |
 | Backups | 7-day PITR, LRS storage | 14-day + geo-redundant and GRS storage under `env == 'prod'` (already in the templates); a *performed* drill (§5) |
 | Identity | Contributor-on-group for the GitHub identity | split: a deploy identity per repo with AcrPush + Container Apps Contributor only |
-| Load | never measured | `load/pm-tree.js` against `load/seed-5000.sql` (Sprint 24) — written, not run; needs k6, Docker or the Azure stack, and a real bearer token (`load/README.md`) |
+| Load | measured once, from a runner (`load/README.md`, Sprint 24) — `load.yml` seeds, mints the machine identity's token and runs k6 | a run per release, and the results table kept |
+| Machine identity | one registration, one secret in the vault, a year's expiry, the `SERVICE` role — every read plus the real date (§11) | a certificate credential instead of a secret; workload identity federation if the caller is ever a GitHub workflow rather than k6 |
 | Security review / pen test | none | Sprint 24; the gateway is the surface |
 | Field app registration | not created | needs the iOS bundle id (MC-004) |
 
@@ -537,3 +552,43 @@ Complete mode with an empty template deletes what is not in the template — i.e
 what-if; it lists every resource by name. Then the same without `--what-if`. The vault is
 soft-deleted for 30 days (`az keyvault purge` to free the name sooner); Postgres is gone with its
 backups, which is why §5 is done *before* anyone relies on this.
+
+---
+
+## 11. The machine identity
+
+**Milestone Command Automation** (`appId fad7865a-…`, service principal `6ef0a031-…`) — Sprint 24,
+the first path on the platform no person signs in for. It holds one thing: the API's `SERVICE` app
+role, which is *application-only* (`allowedMemberTypes: Application`), so Entra will never put it in
+a user's token. Its secret lives in the vault as `automation-client-secret` and nowhere else;
+`AUTOMATION_CLIENT_ID` on `mc-platform-infra` is the identifier, not a secret.
+
+**What the services let it do** — pinned by `ServiceRoleTest` (milestone), `TemplateLibraryTest`,
+`ImportEndpointTest`: every read, the real-date change (and the evidence upload that rides on the
+same check), a project's live-channel group. Not a re-baseline, not a structure edit, not a template
+write, not a P6 preview, not a new project, not a calendar. identity-service names it
+**"Automation (fad7865a)"** on every activity row it writes (`CurrentActor`, from the role — a
+client-credentials token carries no `name`), and milestone-service's audit trail records its
+service-principal oid as the actor: a specific, revocable identity, never "the system".
+
+**Who uses it:** `load.yml`, from a GitHub runner — reads the secret (Key Vault Secrets User for the
+CI identity, `foundation.bicep` `ciPrincipalId`), mints a token at
+`login.microsoftonline.com/<tenant>/oauth2/v2.0/token` with `scope=api://milestone-command/.default`,
+masks both, runs k6. A token from here, for a probe:
+
+```powershell
+# a throwaway secret, used once and deleted — never the vault's
+$probe = az ad app credential reset --id fad7865a-cb9a-4655-8b69-e9ec57211f95 --append --display-name probe --years 1 --query password -o tsv
+$tok = (Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/5b6fa978-e0da-4f01-bb84-37309bc3fe60/oauth2/v2.0/token" -Body @{ client_id='fad7865a-cb9a-4655-8b69-e9ec57211f95'; client_secret=$probe; grant_type='client_credentials'; scope='api://milestone-command/.default' }).access_token
+Remove-Variable probe
+az ad app credential delete --id fad7865a-cb9a-4655-8b69-e9ec57211f95 --key-id (az ad app credential list --id fad7865a-cb9a-4655-8b69-e9ec57211f95 --query "[?displayName=='probe'].keyId | [0]" -o tsv)
+```
+
+**Rotate:** §4. **Revoke, now:** `az ad sp update --id 6ef0a031-3bc4-44a2-9faa-1c1fc1cf2491 --set accountEnabled=false`
+— tokens already issued live out their hour; the gateway validates signature and audience, not
+revocation, and an hour is the ceiling by design. Deleting the role assignment on the API's service
+principal (`az rest … /servicePrincipals/941936a5-…/appRoleAssignedTo`) is the slower, permanent form.
+
+⚠️ **The gateway's write limiter counts it as one caller.** 60 writes a minute, burst 40 (B14). That is
+why `load/pm-tree.js` writes at 48/min from this identity and reports 429s as a threshold — a run
+that raised the limit for itself would prove nothing about the platform a crew lead meets.

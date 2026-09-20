@@ -20,18 +20,34 @@ TOKEN=<bearer> k6 run load/pm-tree.js
 BASE_URL=https://ca-api-gateway.<env-domain>.azurecontainerapps.io TOKEN=<bearer> k6 run load/pm-tree.js
 ```
 
-## The token
+## Unattended, from a runner
+
+```bash
+gh workflow run load.yml                 # seed LOAD-5K through job-seed-load, then run
+gh workflow run load.yml -f seed=false   # the fixture is already there
+gh run download -n load-last-run         # the k6 summary as JSON
+```
+
+`load.yml` runs as the **machine identity** (runbook §11): "Milestone Command Automation", client
+credentials, the application-only `SERVICE` role — every read plus the real-date change, and nothing
+else, which is exactly this script's footprint. The secret is read from the vault on the runner and
+masked; no person's token is involved. The script calls `/me` first so identity-service names the
+caller ("Automation (fad7865a)") before its first write lands in anyone's activity feed.
+
+## The token, by hand
 
 There is no load-test token, deliberately: every service validates a real Entra JWT for the one
-tenant, in every profile (`TenantBoundaryTest` fails the build if that is loosened). So `TOKEN` is
-a real user's bearer for `api://milestone-command`, valid for about an hour. The easiest source is
-a signed-in Dashboards tab — DevTools → Application → Session storage → `mcToken`. A PM or Planner
-role is needed for the writes.
+tenant, in every profile (`TenantBoundaryTest` fails the build if that is loosened). Two sources:
+a signed-in Dashboards tab — DevTools → Application → Session storage → `mcToken` (PM or Planner
+for the writes) — or the machine identity's, minted with a throwaway secret as runbook §11 shows.
 
-If a token per hour becomes the reason the test is not run, the right fix is **not** a bypass
-profile. It is the machine identity E7 already parks against "the first unattended path" —
-`client_credentials` with a `loadtest` app role — and k6 fetching its own token from Entra. Same
-trigger, same build, and the test then proves the machine path too.
+## The write rate
+
+The gateway caps **one caller** at 60 writes a minute (burst 40), sized for a phone replaying its
+outbox. One token is one caller, so `WRITES_PER_MINUTE` defaults to 48 — under the ceiling, still
+~2,900 an hour from a single identity — and 429s are a threshold: a run that hit the limiter was
+misconfigured, and says so. The limiter is not raised for the test on purpose. A pilot's hundred
+crew leads are a hundred callers; that shape needs a hundred tokens, not a higher ceiling.
 
 ## What the thresholds mean
 
@@ -41,7 +57,8 @@ trigger, same build, and the test then proves the machine path too.
 | `summary_ms` p95 < 300 ms | the exec view is instant | one aggregate query |
 | `detail_ms` p95 < 400 ms | a drawer opens before the eye moves | detail + dependencies + history are three requests fired together |
 | `write_ms` p95 < 500 ms | a phone's replay is acknowledged fast enough not to retry | the write, the audit row, the idempotency claim and the ETag bump in one transaction |
-| `server_errors` < 0.1 % | nothing 5xx's under a load a pilot will not reach | `field-sync` at 3 writes/s is ~10,000 an hour |
+| `server_errors` < 0.1 % | nothing 5xx's under a load a pilot will not reach | `field-sync` at 48 writes/min from one caller is ~2,900 an hour |
+| `rate_limited` < 1 % | the run stayed under the gateway's per-caller ceiling | a 429 is the test misconfigured, not the platform failing — see "The write rate" |
 
 `write_conflicts` (409s) is reported, not thresholded: two crew leads moving the same date is a
 real event and the 409 is the correct answer.
