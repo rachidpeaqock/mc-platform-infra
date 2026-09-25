@@ -220,7 +220,7 @@ jobs:
       # Azure still builds.
       - name: Sign in to Azure
         if: vars.ACR_NAME != ''
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
