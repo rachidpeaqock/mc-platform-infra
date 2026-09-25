@@ -2899,7 +2899,28 @@ minus the holidays in range on one indexed lookup — and the view evaluates it 
 `LATERAL`. `BizDaysTest` already pinned every edge (start excluded, end included, the exact
 negative, holidays on weekends, six- and seven-day weeks, a year to the day); two more for the
 closed form's own edges: dates before the 2024 anchor, and a backwards partial week with a holiday.
-The results table in `load/README.md` has the first row; the second is the rerun on V14.
+
+**V14 halved it and was not enough** — tree p95 7.3 s, still 42 % 5xx, Postgres still at 84 %. So
+the same question asked properly, with `EXPLAIN ANALYZE` on the estate through a one-off
+`postgres:17-alpine` job (port 5432 is unreachable from the laptop) and the output read back through
+`ops-logs.yml`: the 5,000 rows cost **309 ms** through the view against a **9 ms** floor for the
+same rows with no variance, and **49 ms** for the arithmetic written inline. The 300 ms was the
+function boundary — a SQL function with two subqueries, called once per row, re-reading
+`work_calendar` each time; the planner cannot hoist that out of the loop. **V15** writes it into the
+view with the calendar joined once per read and holidays as one index-only probe. `biz_days()` stays
+as the definition — `add_work_days()` and every semantic test call it — and `VarianceAgreementTest`
+holds the two together across sixteen shapes of span: both directions, holidays on the excluded
+start and the included end and on a weekend, six-day/seven-day/Sun–Thu/one-day weeks, dates before
+the 2024 anchor and straddling it.
+
+**Third run, on V15: tree p95 1.7 s, summary 802 ms, detail 224 ms, write 508 ms, and zero 5xx.**
+Postgres peaked at 66 % instead of pinned; medians are tree 1.2 s, detail 139 ms, write 166 ms.
+Three thresholds still miss (tree, summary, write by 8 ms) and that is now queueing on one burstable
+vCPU, not a query — the honest next step is to re-state the promise against measured hardware or
+size the dev estate up for the test, both H4. A fourth finding on the way: a cold identity-service
+answered `/me` with a 504 and the script called it a bad token, so identity now stays warm
+(`minReplicas: 1`, same reasoning as template and integration) and `setup()` waits out a cold start
+before blaming the credential. The results table in `load/README.md` has all three rows.
 
 **Cost.** Two probes and a load run: the postgres-cpu alert fired as the runbook says it will.
 
