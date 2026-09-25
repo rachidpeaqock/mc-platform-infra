@@ -512,6 +512,36 @@ The trial's **spending limit** disables the subscription when credit runs out �
 stops, the database stops, the static sites stay up (Free tier). Nothing is deleted. Removing the
 limit converts to pay-as-you-go; that is a decision, not a step in this runbook.
 
+### 8.1 What that looks like when it happens (2026-09-25)
+
+It happened, and it does not announce itself. Nothing in the estate says "the subscription has a
+billing problem"; what you get is a set of unrelated-looking failures:
+
+| Symptom | What it looks like |
+|---|---|
+| CI cannot publish | `az acr login` → "Looks like you don't have access to registry …". With `--debug`: `GET https://<acr>.azurecr.io/v2/ → 403`, empty body — refused at the door, before any token exchange, while ARM reports the registry `Succeeded`, public, well inside its quota, with AcrPush correctly assigned |
+| Nothing answers | every app's FQDN times out, and `az containerapp show` has `"deploymentErrors": "ContainerAppNotFoundInCluster"` with `configuration.ingress: null` — the ARM record survives, the app is gone from the cluster |
+| Postgres looks fine | `state: Ready`. ARM reads are not the data plane |
+| ⚠️ The CLI says everything is fine | `az account show` reports `"state": "Enabled"` — it answers from the cached profile |
+
+The one place that tells the truth:
+
+```powershell
+az rest --method get --url "https://management.azure.com/subscriptions/$sub?api-version=2022-12-01" --query "{state:state, policies:subscriptionPolicies}"
+# state: Warned | Enabled | PastDue | Disabled   ·   quotaId: FreeTrial_… · spendingLimit: On
+```
+
+**`Warned`** is the state this subscription reached: credit exhausted or the trial ended, compute
+deallocated, data planes refused, ARM records kept for a grace period and then deleted with the
+backups. The fix is billing — a payment method and pay-as-you-go — and it is nobody's but the
+owner's. Afterwards: `az deployment group create` both stages (the templates are the estate, so this
+is not a rebuild by hand), `job-bootstrap-db`, the migrate jobs, then the CI dispatch on each service
+repo. §5's drill is what proves the database came back.
+
+⚠️ **Before the grace period ends, anything in that database that is not in a repo is gone** — the
+projects and templates made by hand during a walkthrough, not the schema or the seed. A `pg_dump`
+is the only copy; from a GitHub runner, because this network cannot reach 5432.
+
 Untagged ACR manifests accumulate one per push:
 
 ```powershell
