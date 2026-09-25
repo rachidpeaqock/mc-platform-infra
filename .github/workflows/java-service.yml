@@ -247,7 +247,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         env:
           # ⚠️ v6 uploads a ".dockerbuild" record as a workflow artifact
           # on every run, unasked. Twenty-five of them were sitting in one
@@ -282,7 +282,7 @@ jobs:
 
       - name: Build and push the migration image
         if: steps.migrate-context.outcome == 'success'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         env:
           DOCKER_BUILD_RECORD_UPLOAD: false
         with:
