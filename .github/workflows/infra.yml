@@ -84,9 +84,34 @@ jobs:
   what-if:
     name: ${{ inputs.mode || 'what-if' }} · ${{ inputs.stage || 'platform' }}
     needs: check
-    # PRs get a what-if of the platform stage (the one that changes most)
-    # when the repo is wired to Azure; dispatches do what they were told.
-    if: vars.AZURE_CLIENT_ID != ''
+    # Dispatches do what they were told. PRs get a what-if of the platform
+    # stage — the one that changes most — but only where the run can
+    # actually sign in, and today it cannot:
+    #
+    # ⚠️ Found 2026-09-25, on the first Dependabot batch. Every pull
+    # request against this repo had a red `what-if · platform`, and had
+    # since the workflow was written: `azure/login` answers AADSTS700213,
+    # "no matching federated identity record for subject
+    # repo:…:pull_request". The deploy app's credentials are deliberately
+    # `ref:refs/heads/main` only. So the job was claiming a check it could
+    # never pass, and the "post the what-if on the pull request" step
+    # below has never run once.
+    #
+    # Turning it on is a decision, not a fix, which is why it is a
+    # variable and not a default: it needs a federated credential whose
+    # subject is `repo:<owner>/<repo>:pull_request`, and that grants a
+    # token with Contributor on the resource group to *any* run a pull
+    # request triggers. On a solo private repo that is no new capability —
+    # whoever can push a branch can already push main — and on a repo with
+    # outside contributors it is a way to run arbitrary workflow code
+    # against the estate. Note it still would not light up these PRs:
+    # GitHub withholds the OIDC token from Dependabot-triggered runs, so
+    # a dependency bump gets compile-and-lint and nothing more, which is
+    # exactly what a dependency bump needs.
+    #
+    #   az ad app federated-credential create --id $app --parameters '{...":pull_request"}'
+    #   gh variable set INFRA_WHATIF_ON_PR -b true
+    if: vars.AZURE_CLIENT_ID != '' && (github.event_name != 'pull_request' || vars.INFRA_WHATIF_ON_PR == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
