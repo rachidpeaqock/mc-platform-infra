@@ -226,9 +226,28 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      # ⚠️ When this fails it says only "Looks like you don't have access to
+      # registry X", which is the same sentence for a firewall rule, a
+      # missing role, a disabled ARM-token policy and an expired
+      # credential — and it sent 2026-09-25 looking at all four. The
+      # retry with --debug prints the actual HTTP exchange (the challenge,
+      # the status, the AAD error code), so the next reader gets the
+      # reason rather than the category. The estate cannot be reached from
+      # the development machine's network, so this log is the only place
+      # the question can be asked.
       - name: Sign in to ACR
         if: vars.ACR_NAME != ''
-        run: az acr login --name "${{ vars.ACR_NAME }}"
+        run: |
+          if az acr login --name "${{ vars.ACR_NAME }}"; then exit 0; fi
+          echo "::group::az acr login --debug"
+          az acr login --name "${{ vars.ACR_NAME }}" --debug 2>&1 | tail -80 || true
+          echo "::endgroup::"
+          echo "::group::what the registry says through ARM"
+          az acr show --name "${{ vars.ACR_NAME }}" --query "{publicNetworkAccess:publicNetworkAccess, armPolicy:policies.azureAdAuthenticationAsArmPolicy.status, network:networkRuleSet, state:provisioningState}" -o json || true
+          az acr show-usage --name "${{ vars.ACR_NAME }}" -o table || true
+          az role assignment list --scope "$(az acr show --name "${{ vars.ACR_NAME }}" --query id -o tsv)" --query "[].{role:roleDefinitionName, principal:principalId}" -o table || true
+          echo "::endgroup::"
+          exit 1
 
       - name: Work out the tags
         id: tags
