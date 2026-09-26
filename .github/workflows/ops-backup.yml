@@ -68,8 +68,11 @@ jobs:
           rule="ops-backup-${GITHUB_RUN_ID}"
           # Deleted on every exit path, including a failed dump. A firewall
           # rule left behind is a hole nobody remembers opening.
-          trap 'az postgres flexible-server firewall-rule delete -g "$RG" -n "$SERVER" -r "$rule" --yes -o none 2>/dev/null || true' EXIT
-          az postgres flexible-server firewall-rule create -g "$RG" -n "$SERVER" -r "$rule" \
+          # ⚠️ Long flags, deliberately: `-n` is the RULE's name here, not
+          # the server's, and az 2.90 rejects the abbreviation outright
+          # ("the following arguments are required: --server-name/-s").
+          trap 'az postgres flexible-server firewall-rule delete --resource-group "$RG" --server-name "$SERVER" --rule-name "$rule" --yes -o none 2>/dev/null || true' EXIT
+          az postgres flexible-server firewall-rule create --resource-group "$RG" --server-name "$SERVER" --rule-name "$rule" \
             --start-ip-address "$ip" --end-ip-address "$ip" -o none
           echo "firewall open for $ip as $rule"
 

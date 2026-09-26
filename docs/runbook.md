@@ -413,9 +413,9 @@ az postgres flexible-server restore -g $rg -n psql-milestone-command-dev-drill -
 
 # 3. Prove the data is there. ⚠️ found 2026-09-19: the restored server has NO firewall rules —
 #    nothing can connect until one exists. From a machine that can reach 5432:
-az postgres flexible-server firewall-rule create -g $rg -n psql-milestone-command-dev-drill -r me --start-ip-address <your ip> --end-ip-address <your ip>
+az postgres flexible-server firewall-rule create --resource-group $rg --server-name psql-milestone-command-dev-drill --rule-name me --start-ip-address <your ip> --end-ip-address <your ip>
 #    From the development machine (which cannot): AllowAzureServices + a one-off job, then read it with ops-logs.yml —
-az postgres flexible-server firewall-rule create -g $rg -n psql-milestone-command-dev-drill -r AllowAzureServices --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
+az postgres flexible-server firewall-rule create --resource-group $rg --server-name psql-milestone-command-dev-drill --rule-name AllowAzureServices --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
 #    az containerapp job create -n job-drill-check -g $rg --yaml drill-job.yaml   (postgres:17-alpine, PGHOST=<drill fqdn>, PGPASSWORD=keyvaultref pg-admin-password, psql -c "select count(*) from milestone" …)
 $env:PGPASSWORD = az keyvault secret show --vault-name kv-mc-milestone-dev -n pg-admin-password --query value -o tsv
 psql "host=psql-milestone-command-dev-drill.postgres.database.azure.com dbname=milestone_db user=mcadmin sslmode=require" -c "select count(*) from milestone; select max(created_at) from milestone_log;"
