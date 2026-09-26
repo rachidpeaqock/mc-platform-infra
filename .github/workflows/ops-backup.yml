@@ -92,7 +92,24 @@ jobs:
             az postgres flexible-server firewall-rule list --resource-group "$RG" --server-name "$SERVER" --query "[].{name:name, start:startIpAddress, end:endIpAddress}" -o table || true
           fi
 
-          pw=$(az keyvault secret show --vault-name "$VAULT" -n pg-admin-password --query value -o tsv)
+          # Does the server answer at all? No credential needed, so this
+          # separates "the data is unreachable" from "we cannot read the
+          # password" — two different problems with the same symptom.
+          echo "::group::is 5432 listening"
+          docker run --rm postgres:17-alpine pg_isready -h "$FQDN" -t 15 || echo "pg_isready exit $?"
+          echo "::endgroup::"
+
+          # ⚠️ A disabled subscription switches off the vault's data plane
+          # too: `Forbidden — the subscription associated with this vault
+          # has been disabled`. The admin password lives only here, on
+          # purpose, so a backup cannot be taken after the subscription is
+          # gone. Take it while the estate is healthy; that is the lesson,
+          # and it is in runbook §8.1.
+          if ! pw=$(az keyvault secret show --vault-name "$VAULT" -n pg-admin-password --query value -o tsv 2>/tmp/kv.err); then
+            sed 's/^/    /' /tmp/kv.err
+            echo "::error::cannot read pg-admin-password from $VAULT — see above. If the subscription is disabled, re-enable billing first: nothing can be dumped until then."
+            exit 1
+          fi
           echo "::add-mask::$pw"
 
           mkdir -p dump
