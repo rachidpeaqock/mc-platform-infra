@@ -542,6 +542,31 @@ repo. §5's drill is what proves the database came back.
 projects and templates made by hand during a walkthrough, not the schema or the seed. A `pg_dump`
 is the only copy; from a GitHub runner, because this network cannot reach 5432.
 
+**Taken 2026-09-26** with `.github/workflows/ops-backup.yml` — four projects, 5,048 milestones, 510
+audit entries, one template, both users. Two things that decided how:
+
+- **The database keeps accepting connections** while everything around it is switched off
+  (`pg_isready` says so, and the dump proves it). Deallocated compute and a disabled data plane are
+  not the same thing, and the Postgres one stays up.
+- **The vault does not.** `Forbidden — the subscription associated with this vault has been
+  disabled`, and the admin password lives only there, by design. So the way in was the server's
+  **Entra administrator** — the one principal whose credential is not stored in the estate — with
+  `az account get-access-token --resource https://ossrdbms-aad.database.windows.net` piped straight
+  into `gh secret set PG_AAD_TOKEN` (never printed, deleted after the run) and used as the password
+  for the truncated 63-character role name. `PG_AAD_USER` holds that name.
+- ⚠️ And a write is impossible: `ReadOnlyDisabledSubscription`, firewall rule included. The dump
+  rides on the `AllowAzureServices` rule already on the server, which admits a GitHub runner because
+  runners are Azure-hosted.
+
+⚠️ **Evidence photos are not in the dump** — they are blobs, and storage is off with the rest. The
+database keeps the record that points at one; the file itself is only recoverable once the
+subscription is back.
+
+⚠️ **`az` flag spellings differ between the three `firewall-rule` subcommands and between CLI
+versions** — `create` takes `--name` for the rule and requires `--server-name`; `delete` takes
+`--rule-name`; `list` on 2.90 refuses `-n`. Three runs died on this. The workflow uses long flags
+and treats the listing as informational.
+
 Untagged ACR manifests accumulate one per push:
 
 ```powershell
