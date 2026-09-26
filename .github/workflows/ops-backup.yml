@@ -85,7 +85,11 @@ jobs:
             echo "firewall open for $ip as $rule"
           else
             echo "using the server's existing rules:"
-            az postgres flexible-server firewall-rule list -g "$RG" -n "$SERVER" --query "[].{name:name, start:startIpAddress, end:endIpAddress}" -o table
+            # Informational only, and never fatal: the flag spellings for
+            # these three subcommands differ from each other AND between az
+            # versions (2.90 on the runner rejects `-n` here, an older CLI
+            # rejects `--server-name`). The dump does not depend on it.
+            az postgres flexible-server firewall-rule list --resource-group "$RG" --server-name "$SERVER" --query "[].{name:name, start:startIpAddress, end:endIpAddress}" -o table || true
           fi
 
           pw=$(az keyvault secret show --vault-name "$VAULT" -n pg-admin-password --query value -o tsv)
