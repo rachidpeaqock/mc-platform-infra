@@ -67,6 +67,8 @@ jobs:
         env:
           DATABASES: ${{ inputs.databases }}
           OPEN_FIREWALL: ${{ inputs.open_firewall }}
+          PG_AAD_TOKEN: ${{ secrets.PG_AAD_TOKEN }}
+          PG_USER: ${{ vars.PG_AAD_USER }}
         run: |
           set -euo pipefail
           # ⚠️ No firewall rule is created, and that is not an oversight.
@@ -105,10 +107,29 @@ jobs:
           # purpose, so a backup cannot be taken after the subscription is
           # gone. Take it while the estate is healthy; that is the lesson,
           # and it is in runbook §8.1.
-          if ! pw=$(az keyvault secret show --vault-name "$VAULT" -n pg-admin-password --query value -o tsv 2>/tmp/kv.err); then
-            sed 's/^/    /' /tmp/kv.err
-            echo "::error::cannot read pg-admin-password from $VAULT — see above. If the subscription is disabled, re-enable billing first: nothing can be dumped until then."
-            exit 1
+          # Two ways in, and the second one exists because of 2026-09-25.
+          #
+          # Normally: the admin password, from the vault. When the
+          # subscription is disabled the vault's data plane goes with it
+          # (`Forbidden — the subscription associated with this vault has
+          # been disabled`) while the database itself keeps accepting
+          # connections — so the estate is dumpable and its password is
+          # not. Hence PG_AAD_TOKEN: an Entra access token for
+          # `https://ossrdbms-aad.database.windows.net`, minted by whoever
+          # is the server's Entra administrator and used as the password.
+          # It lasts an hour, it is set and deleted around a single run,
+          # and it never appears in a log — that is the whole point of
+          # putting it in a secret rather than an input.
+          if [ -n "${PG_AAD_TOKEN:-}" ]; then
+            echo "authenticating as the Entra administrator ($PG_USER)"
+            pw="$PG_AAD_TOKEN"
+          else
+            PG_USER="$ADMIN"
+            if ! pw=$(az keyvault secret show --vault-name "$VAULT" -n pg-admin-password --query value -o tsv 2>/tmp/kv.err); then
+              sed 's/^/    /' /tmp/kv.err
+              echo "::error::cannot read pg-admin-password from $VAULT — see above. If the subscription is disabled, either re-enable billing or pass PG_AAD_TOKEN (see the comment in this workflow)."
+              exit 1
+            fi
           fi
           echo "::add-mask::$pw"
 
@@ -118,7 +139,7 @@ jobs:
           for db in $DATABASES; do
             echo "::group::$db"
             docker run --rm -e PGPASSWORD="$pw" -v "$PWD/dump:/out" postgres:17-alpine \
-              pg_dump -h "$FQDN" -U "$ADMIN" -d "$db" --no-owner --no-privileges -f "/out/$db.sql"
+              pg_dump -h "$FQDN" -U "$PG_USER" -d "$db" --no-owner --no-privileges -f "/out/$db.sql"
             gzip -9 "dump/$db.sql"
             echo "::endgroup::"
           done
