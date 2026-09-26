@@ -71,8 +71,12 @@ jobs:
           # ⚠️ Long flags, deliberately: `-n` is the RULE's name here, not
           # the server's, and az 2.90 rejects the abbreviation outright
           # ("the following arguments are required: --server-name/-s").
+          # ⚠️ And the two subcommands disagree about the rule: `create`
+          # takes --name, `delete` takes --rule-name. Passing --rule-name
+          # to create answers "unrecognized arguments", which reads like a
+          # stale CLI rather than an inconsistent one.
           trap 'az postgres flexible-server firewall-rule delete --resource-group "$RG" --server-name "$SERVER" --rule-name "$rule" --yes -o none 2>/dev/null || true' EXIT
-          az postgres flexible-server firewall-rule create --resource-group "$RG" --server-name "$SERVER" --rule-name "$rule" \
+          az postgres flexible-server firewall-rule create --resource-group "$RG" --server-name "$SERVER" --name "$rule" \
             --start-ip-address "$ip" --end-ip-address "$ip" -o none
           echo "firewall open for $ip as $rule"
 
