@@ -26,6 +26,10 @@ on:
         description: Which databases to dump
         type: string
         default: milestone_db identity_db template_db
+      open_firewall:
+        description: Open a firewall rule for this runner (needs a writable subscription)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -62,23 +66,27 @@ jobs:
       - name: Dump
         env:
           DATABASES: ${{ inputs.databases }}
+          OPEN_FIREWALL: ${{ inputs.open_firewall }}
         run: |
           set -euo pipefail
-          ip=$(curl -sS --max-time 20 https://api.ipify.org)
-          rule="ops-backup-${GITHUB_RUN_ID}"
-          # Deleted on every exit path, including a failed dump. A firewall
-          # rule left behind is a hole nobody remembers opening.
-          # ⚠️ Long flags, deliberately: `-n` is the RULE's name here, not
-          # the server's, and az 2.90 rejects the abbreviation outright
-          # ("the following arguments are required: --server-name/-s").
-          # ⚠️ And the two subcommands disagree about the rule: `create`
-          # takes --name, `delete` takes --rule-name. Passing --rule-name
-          # to create answers "unrecognized arguments", which reads like a
-          # stale CLI rather than an inconsistent one.
-          trap 'az postgres flexible-server firewall-rule delete --resource-group "$RG" --server-name "$SERVER" --rule-name "$rule" --yes -o none 2>/dev/null || true' EXIT
-          az postgres flexible-server firewall-rule create --resource-group "$RG" --server-name "$SERVER" --name "$rule" \
-            --start-ip-address "$ip" --end-ip-address "$ip" -o none
-          echo "firewall open for $ip as $rule"
+          # ⚠️ No firewall rule is created, and that is not an oversight.
+          # A disabled subscription is READ ONLY — every write answers
+          # `ReadOnlyDisabledSubscription`, a rule included — which is
+          # exactly the state this backup exists for. The server already
+          # carries `AllowAzureServices` (0.0.0.0), and a GitHub-hosted
+          # runner is Azure-hosted, so that rule admits this job. Pass
+          # `open_firewall=true` on a healthy subscription whose server
+          # does not have that rule; it is then cleaned up on exit.
+          if [ "${OPEN_FIREWALL}" = "true" ]; then
+            ip=$(curl -sS --max-time 20 https://api.ipify.org)
+            rule="ops-backup-${GITHUB_RUN_ID}"
+            trap 'az postgres flexible-server firewall-rule delete --resource-group "$RG" --server-name "$SERVER" --rule-name "$rule" --yes -o none 2>/dev/null || true' EXIT
+            az postgres flexible-server firewall-rule create --resource-group "$RG" --server-name "$SERVER" --name "$rule"               --start-ip-address "$ip" --end-ip-address "$ip" -o none
+            echo "firewall open for $ip as $rule"
+          else
+            echo "using the server's existing rules:"
+            az postgres flexible-server firewall-rule list -g "$RG" -n "$SERVER" --query "[].{name:name, start:startIpAddress, end:endIpAddress}" -o table
+          fi
 
           pw=$(az keyvault secret show --vault-name "$VAULT" -n pg-admin-password --query value -o tsv)
           echo "::add-mask::$pw"
