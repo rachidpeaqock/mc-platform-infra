@@ -1,0 +1,104 @@
+name: Ops · database backup
+
+# A plain-SQL copy of every database, taken from somewhere that can reach
+# port 5432 — which the development machine cannot (runbook §0). Written
+# 2026-09-26, when the free-trial subscription reached `Warned` and the
+# estate was switched off: Azure keeps the records for a grace period and
+# then deletes the server *with its backups*, so anything typed in by hand
+# during a walkthrough has no other copy. This is that copy.
+#
+#   gh workflow run ops-backup.yml
+#   gh run download <id> -n database-backup     # three .sql.gz files
+#
+# Restore into a fresh server (runbook §5 has the drill):
+#   gunzip -c milestone_db.sql.gz | psql "host=… dbname=milestone_db user=mcadmin sslmode=require"
+#
+# Read-only against the estate apart from one thing: it opens a firewall
+# rule for this runner's own address and deletes it again on the way out,
+# including when a step fails. `--no-owner --no-privileges` so the dump can
+# be restored by whoever restores it; the bootstrap job hands ownership to
+# the service logins afterwards, exactly as it does on a new server.
+
+on:
+  workflow_dispatch:
+    inputs:
+      databases:
+        description: Which databases to dump
+        type: string
+        default: milestone_db identity_db template_db
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RG: rg-milestone-command-dev
+      SERVER: psql-milestone-command-dev
+      VAULT: kv-mc-milestone-dev
+      ADMIN: mcadmin
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Is the server even reachable
+        run: |
+          set -euo pipefail
+          state=$(az postgres flexible-server show -g "$RG" -n "$SERVER" --query state -o tsv)
+          echo "server state: $state"
+          if [ "$state" != "Ready" ]; then
+            echo "::error::the server is $state — ARM will not dump it; start it first (az postgres flexible-server start) and re-run"
+            exit 1
+          fi
+          fqdn=$(az postgres flexible-server show -g "$RG" -n "$SERVER" --query fullyQualifiedDomainName -o tsv)
+          echo "FQDN=$fqdn" >> "$GITHUB_ENV"
+
+      - name: Dump
+        env:
+          DATABASES: ${{ inputs.databases }}
+        run: |
+          set -euo pipefail
+          ip=$(curl -sS --max-time 20 https://api.ipify.org)
+          rule="ops-backup-${GITHUB_RUN_ID}"
+          # Deleted on every exit path, including a failed dump. A firewall
+          # rule left behind is a hole nobody remembers opening.
+          trap 'az postgres flexible-server firewall-rule delete -g "$RG" -n "$SERVER" -r "$rule" --yes -o none 2>/dev/null || true' EXIT
+          az postgres flexible-server firewall-rule create -g "$RG" -n "$SERVER" -r "$rule" \
+            --start-ip-address "$ip" --end-ip-address "$ip" -o none
+          echo "firewall open for $ip as $rule"
+
+          pw=$(az keyvault secret show --vault-name "$VAULT" -n pg-admin-password --query value -o tsv)
+          echo "::add-mask::$pw"
+
+          mkdir -p dump
+          # pg_dump must be at least the server's version, and the runner
+          # image ships an older client — so the real one, in a container.
+          for db in $DATABASES; do
+            echo "::group::$db"
+            docker run --rm -e PGPASSWORD="$pw" -v "$PWD/dump:/out" postgres:17-alpine \
+              pg_dump -h "$FQDN" -U "$ADMIN" -d "$db" --no-owner --no-privileges -f "/out/$db.sql"
+            gzip -9 "dump/$db.sql"
+            echo "::endgroup::"
+          done
+
+          # What is in the copy, so the log alone answers "did it work".
+          echo "::group::what was captured"
+          ls -l dump
+          for f in dump/*.sql.gz; do
+            echo "-- $f"
+            gunzip -c "$f" | grep -cE "^(CREATE TABLE|COPY )" | sed 's/^/   create+copy statements: /'
+          done
+          echo "::endgroup::"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: database-backup
+          path: dump/*.sql.gz
+          retention-days: 90
+          if-no-files-found: error
